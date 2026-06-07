@@ -1,0 +1,713 @@
+"use client"
+
+import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { createPlanFromWizard } from "@/app/actions/plan"
+import { DISTANCE_CONFIGS, getDefaultTrainingDays } from "@/lib/trainingEngine"
+import {
+  TARGET_DISTANCE_LABELS,
+  TARGET_DISTANCE_ICONS,
+  PHASE_COLORS,
+} from "@/types"
+import type { TargetDistance, WizardFormState, RunnerProfile } from "@/types"
+
+const DAYS_TH = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
+const STEP_LABELS = ["ระยะ", "วันที่", "ตาราง", "ฟิตเนส", "โปรแกรม", "สรุป"]
+const DISTANCES = Object.keys(DISTANCE_CONFIGS) as TargetDistance[]
+
+const INTENSITY_OPTIONS = [
+  { value: "gentle", label: "ผ่อนคลาย", desc: "สำหรับผู้เริ่มต้น หรือต้องการฟื้นฟู", color: "#4af0ff" },
+  { value: "normal", label: "ปกติ", desc: "มาตรฐานสำหรับนักวิ่งทั่วไป", color: "#e8ff4a" },
+  { value: "challenging", label: "ท้าทาย", desc: "สำหรับผู้ต้องการ PR ใหม่", color: "#ff9f4a" },
+  { value: "elite", label: "Elite", desc: "โปรแกรมหนักสำหรับนักวิ่งขั้นสูง", color: "#ff4a4a" },
+] as const
+
+function defaultState(profile: RunnerProfile | null): WizardFormState {
+  let trainingDays: number[] = []
+  try {
+    trainingDays = JSON.parse(profile?.trainingDays ?? "[]")
+  } catch {}
+  return {
+    targetDistance: (profile?.targetDistance as TargetDistance) ?? "",
+    startDate: new Date().toISOString().slice(0, 10),
+    raceDate: "",
+    trainingWeeks: 12,
+    daysPerWeek: profile?.daysPerWeek ?? 4,
+    trainingDays: trainingDays.length > 0 ? trainingDays : getDefaultTrainingDays(profile?.daysPerWeek ?? 4),
+    longRunDay: profile?.longRunDay ?? 6,
+    sessionTime: (profile?.sessionTime as "morning" | "evening" | "both") ?? "evening",
+    morningZone2: profile?.morningZone2 ?? false,
+    morningMinutes: profile?.morningMinutes ?? 45,
+    eveningMinutes: profile?.eveningMinutes ?? 45,
+    pr5k: profile?.pr5k ?? "",
+    pr10k: profile?.pr10k ?? "",
+    prHalf: profile?.prHalf ?? "",
+    prFull: profile?.prFull ?? "",
+    intensity: (profile?.intensity as "gentle"|"normal"|"challenging"|"elite") ?? "normal",
+    terrainType: profile?.terrainType ?? "road",
+    runMode: (profile?.runMode as "outdoor" | "treadmill") ?? "outdoor",
+    name: "แผนซ้อมวิ่ง",
+  }
+}
+
+export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
+  const router = useRouter()
+  const [step, setStep] = useState(0)
+  const [form, setForm] = useState<WizardFormState>(() => defaultState(profile))
+  const [error, setError] = useState("")
+  const [isPending, startTransition] = useTransition()
+  const [zone2Custom, setZone2Custom] = useState(false)
+
+  const update = (patch: Partial<WizardFormState>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  // Compute training weeks from dates
+  const computeWeeks = (start: string, race: string, dist: TargetDistance) => {
+    if (!start || !race) return 12
+    const diff = Math.round((new Date(race).getTime() - new Date(start).getTime()) / (7 * 86400 * 1000))
+    const config = DISTANCE_CONFIGS[dist]
+    return Math.max(config.minWeeks, Math.min(config.maxWeeks, Math.max(1, diff)))
+  }
+
+  const handleDistanceSelect = (d: TargetDistance) => {
+    update({ targetDistance: d })
+    setStep(1)
+  }
+
+  const handleDaysPerWeekChange = (n: number) => {
+    const days = getDefaultTrainingDays(n)
+    update({ daysPerWeek: n, trainingDays: days, longRunDay: days[days.length - 1] })
+  }
+
+  const toggleDay = (day: number) => {
+    const current = form.trainingDays
+    const next = current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort((a, b) => a - b)
+    update({ trainingDays: next, longRunDay: next.includes(form.longRunDay) ? form.longRunDay : next[next.length - 1] ?? 6 })
+  }
+
+  const validatePR = (val: string, format: "MM:SS" | "H:MM:SS"): boolean => {
+    if (!val) return true
+    if (format === "MM:SS") return /^\d{1,2}:\d{2}$/.test(val)
+    return /^\d{1,2}:\d{2}:\d{2}$/.test(val)
+  }
+
+  const prErrors = {
+    pr5k: !validatePR(form.pr5k, "MM:SS"),
+    pr10k: !validatePR(form.pr10k, "MM:SS"),
+    prHalf: !validatePR(form.prHalf, "H:MM:SS"),
+    prFull: !validatePR(form.prFull, "H:MM:SS"),
+  }
+  const hasPRError = Object.values(prErrors).some(Boolean)
+
+  const canNext = (): boolean => {
+    if (step === 0) return !!form.targetDistance
+    if (step === 1) return !!form.startDate && !!form.raceDate && new Date(form.raceDate) > new Date(form.startDate)
+    if (step === 2) return form.trainingDays.length === form.daysPerWeek
+    if (step === 3) return !hasPRError
+    return true
+  }
+
+  const handleNext = () => {
+    if (step < 5 && canNext()) setStep(step + 1)
+  }
+
+  const handleSubmit = () => {
+    setError("")
+    if (!form.targetDistance) return
+    const config = DISTANCE_CONFIGS[form.targetDistance]
+    const distLabel = TARGET_DISTANCE_LABELS[form.targetDistance]
+    const planName = form.name || `แผนซ้อม ${distLabel} ${form.trainingWeeks} สัปดาห์`
+
+    startTransition(async () => {
+      const result = await createPlanFromWizard({
+        name: planName,
+        targetDistance: form.targetDistance as TargetDistance,
+        startDate: form.startDate,
+        raceDate: form.raceDate,
+        trainingWeeks: form.trainingWeeks,
+        daysPerWeek: form.daysPerWeek,
+        trainingDays: form.trainingDays,
+        longRunDay: form.longRunDay,
+        sessionTime: form.sessionTime,
+        morningZone2: form.morningZone2,
+        morningMinutes: form.morningMinutes,
+        eveningMinutes: form.eveningMinutes,
+        intensity: form.intensity,
+        terrainType: form.terrainType as "road" | "trail" | "track" | "mixed",
+        runMode: form.runMode,
+        pr5k: form.pr5k || undefined,
+        pr10k: form.pr10k || undefined,
+        prHalf: form.prHalf || undefined,
+        prFull: form.prFull || undefined,
+      })
+      if ("error" in result) {
+        setError(result.error ?? "เกิดข้อผิดพลาด")
+      } else if ("planId" in result) {
+        router.push(`/plan/${result.planId}`)
+      }
+    })
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0f" }}>
+      {/* ─── Header ─── */}
+      <div className="sticky top-0 z-20 border-b" style={{ borderColor: "rgba(255,255,255,0.08)", background: "rgba(10,10,15,0.97)", backdropFilter: "blur(10px)" }}>
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-2xl font-bold tracking-wide" style={{ fontFamily: "var(--font-heading, sans-serif)", color: "#e8ff4a" }}>
+              ตัวตึง JUST RUN!
+            </span>
+            <span className="text-xs font-mono" style={{ color: "#666" }}>ขั้น {step + 1}/6</span>
+          </div>
+          {/* Progress pills */}
+          <div className="flex gap-1.5">
+            {STEP_LABELS.map((label, i) => (
+              <div key={i} className="flex items-center gap-1.5 flex-1">
+                <div className="flex flex-col items-center gap-0.5 w-full">
+                  <div
+                    className="h-1 w-full rounded-full transition-all duration-300"
+                    style={{
+                      background: i < step ? "#e8ff4a66" : i === step ? "#e8ff4a" : "rgba(255,255,255,0.1)",
+                    }}
+                  />
+                  <span className="text-[10px] hidden sm:block" style={{ color: i === step ? "#e8ff4a" : "#444" }}>
+                    {label}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Content: min-h-full centers short steps, overflow scrolls long steps ─── */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="min-h-full flex flex-col justify-center">
+        <div className="max-w-2xl mx-auto w-full px-4 py-4">
+          {/* Step 1: Distance */}
+          {step === 0 && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">เลือกระยะทางเป้าหมาย</h2>
+                <p className="text-sm mt-1" style={{ color: "#888" }}>คลิกเพื่อเลือก — จะไปขั้นถัดไปอัตโนมัติ</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {DISTANCES.map((d) => {
+                  const cfg = DISTANCE_CONFIGS[d]
+                  const isSelected = form.targetDistance === d
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => handleDistanceSelect(d)}
+                      className="text-left p-4 rounded-xl border transition-all duration-150"
+                      style={{
+                        background: isSelected ? "rgba(232,255,74,0.08)" : "rgba(255,255,255,0.03)",
+                        borderColor: isSelected ? "#e8ff4a" : "rgba(255,255,255,0.08)",
+                        boxShadow: isSelected ? "0 0 12px rgba(232,255,74,0.15)" : "none",
+                      }}
+                    >
+                      <div className="text-2xl mb-1">{cfg.icon}</div>
+                      <div className="font-semibold text-sm text-white">{cfg.label}</div>
+                      <div className="text-xs mt-0.5" style={{ color: "#666" }}>
+                        {cfg.minWeeks}–{cfg.maxWeeks} สัปดาห์ · สูงสุด {cfg.peakKmPerWeek} km/สัปดาห์
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Dates */}
+          {step === 1 && form.targetDistance && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-xl font-bold text-white">กำหนดวันที่</h2>
+                <p className="text-sm mt-1" style={{ color: "#888" }}>
+                  {DISTANCE_CONFIGS[form.targetDistance].icon} {TARGET_DISTANCE_LABELS[form.targetDistance]}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>วันเริ่มซ้อม</Label>
+                  <Input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) => {
+                      const sd = e.target.value
+                      const wk = computeWeeks(sd, form.raceDate, form.targetDistance as TargetDistance)
+                      update({ startDate: sd, trainingWeeks: wk })
+                    }}
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)" }}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>วันแข่ง</Label>
+                  <Input
+                    type="date"
+                    value={form.raceDate}
+                    onChange={(e) => {
+                      const rd = e.target.value
+                      const wk = computeWeeks(form.startDate, rd, form.targetDistance as TargetDistance)
+                      update({ raceDate: rd, trainingWeeks: wk })
+                    }}
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)" }}
+                  />
+                </div>
+
+                {form.startDate && form.raceDate && (
+                  <div className="rounded-lg p-3 text-sm" style={{ background: "rgba(232,255,74,0.06)", border: "1px solid rgba(232,255,74,0.2)" }}>
+                    <span style={{ color: "#e8ff4a" }}>
+                      ระยะเวลาซ้อม {form.trainingWeeks} สัปดาห์
+                    </span>
+                    {(() => {
+                      const cfg = DISTANCE_CONFIGS[form.targetDistance as TargetDistance]
+                      const raw = Math.round((new Date(form.raceDate).getTime() - new Date(form.startDate).getTime()) / (7 * 86400 * 1000))
+                      if (raw < cfg.minWeeks) return <span className="ml-2 text-xs" style={{ color: "#ff9f4a" }}>(ปรับจาก {raw} สัปดาห์ → ขั้นต่ำ {cfg.minWeeks})</span>
+                      if (raw > cfg.maxWeeks) return <span className="ml-2 text-xs" style={{ color: "#ff9f4a" }}>(ปรับจาก {raw} สัปดาห์ → สูงสุด {cfg.maxWeeks})</span>
+                      return null
+                    })()}
+                  </div>
+                )}
+
+                {/* Recommended weeks pills */}
+                {form.targetDistance && (
+                  <div className="space-y-1.5">
+                    <Label>แนะนำ</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {DISTANCE_CONFIGS[form.targetDistance as TargetDistance].recommendedWeeks.map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => {
+                            if (!form.startDate) return
+                            const raceMs = new Date(form.startDate).getTime() + w * 7 * 86400 * 1000
+                            update({ trainingWeeks: w, raceDate: new Date(raceMs).toISOString().slice(0, 10) })
+                          }}
+                          className="px-3 py-1 rounded-full text-xs font-mono transition-colors"
+                          style={{
+                            background: form.trainingWeeks === w ? "rgba(232,255,74,0.15)" : "rgba(255,255,255,0.05)",
+                            border: `1px solid ${form.trainingWeeks === w ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                            color: form.trainingWeeks === w ? "#e8ff4a" : "#888",
+                          }}
+                        >
+                          {w} สัปดาห์
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Schedule */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-xl font-bold text-white">ตารางซ้อม</h2>
+                <p className="text-sm mt-1" style={{ color: "#888" }}>กำหนดวันและเวลาซ้อม</p>
+              </div>
+
+              {/* Days per week */}
+              <div className="space-y-2">
+                <Label>จำนวนวันซ้อม/สัปดาห์</Label>
+                <div className="flex gap-2">
+                  {[3, 4, 5, 6].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => handleDaysPerWeekChange(n)}
+                      className="w-12 h-10 rounded-lg text-sm font-medium transition-colors"
+                      style={{
+                        background: form.daysPerWeek === n ? "rgba(232,255,74,0.15)" : "rgba(255,255,255,0.05)",
+                        border: `1px solid ${form.daysPerWeek === n ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                        color: form.daysPerWeek === n ? "#e8ff4a" : "#888",
+                      }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Training days */}
+              <div className="space-y-2">
+                <Label>
+                  วันที่ซ้อม{" "}
+                  <span className="text-xs font-mono ml-1" style={{ color: form.trainingDays.length === form.daysPerWeek ? "#e8ff4a" : "#ff4a4a" }}>
+                    ({form.trainingDays.length}/{form.daysPerWeek})
+                  </span>
+                </Label>
+                <div className="flex gap-2">
+                  {DAYS_TH.map((day, i) => {
+                    const isSelected = form.trainingDays.includes(i)
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => toggleDay(i)}
+                        className="w-9 h-9 rounded-full text-xs font-medium transition-colors"
+                        style={{
+                          background: isSelected ? "#e8ff4a" : "rgba(255,255,255,0.05)",
+                          color: isSelected ? "#0a0a0f" : "#888",
+                          border: `1px solid ${isSelected ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                        }}
+                      >
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+                {form.trainingDays.length !== form.daysPerWeek && (
+                  <p className="text-xs" style={{ color: "#ff9f4a" }}>
+                    กรุณาเลือกให้ครบ {form.daysPerWeek} วัน
+                  </p>
+                )}
+              </div>
+
+              {/* Long run day */}
+              {form.trainingDays.length > 0 && (
+                <div className="space-y-2">
+                  <Label>วัน Long Run</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    {form.trainingDays.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => update({ longRunDay: d })}
+                        className="px-3 h-9 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: form.longRunDay === d ? "rgba(232,255,74,0.15)" : "rgba(255,255,255,0.05)",
+                          border: `1px solid ${form.longRunDay === d ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                          color: form.longRunDay === d ? "#e8ff4a" : "#888",
+                        }}
+                      >
+                        {DAYS_TH[d]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Session time */}
+              <div className="space-y-2">
+                <Label>เวลาซ้อม</Label>
+                <div className="flex gap-2">
+                  {(["morning", "evening", "both"] as const).map((t) => {
+                    const labels = { morning: "เช้า 🌅", evening: "เย็น 🌆", both: "เช้า+เย็น" }
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => update({ sessionTime: t })}
+                        className="px-3 h-9 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: form.sessionTime === t ? "rgba(232,255,74,0.15)" : "rgba(255,255,255,0.05)",
+                          border: `1px solid ${form.sessionTime === t ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                          color: form.sessionTime === t ? "#e8ff4a" : "#888",
+                        }}
+                      >
+                        {labels[t]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Zone 2 toggle */}
+              <div className="space-y-3 rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      💚 Zone 2{" "}
+                      {form.sessionTime === "both" ? "เช้า (ก่อน session หลัก)" : form.sessionTime === "morning" ? "เช้า" : "เย็น"}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: "#666" }}>วิ่งเบา HR ต่ำ สร้าง aerobic base</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { update({ morningZone2: !form.morningZone2 }); setZone2Custom(false) }}
+                    className="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                    style={{ background: form.morningZone2 ? "#4af08c" : "rgba(255,255,255,0.12)" }}
+                  >
+                    <span
+                      className="absolute top-0.5 w-5 h-5 rounded-full transition-transform"
+                      style={{
+                        background: form.morningZone2 ? "#0a0a0f" : "#666",
+                        transform: form.morningZone2 ? "translateX(22px)" : "translateX(2px)",
+                      }}
+                    />
+                  </button>
+                </div>
+
+                {form.morningZone2 && (
+                  <div className="space-y-2">
+                    <p className="text-xs" style={{ color: "#888" }}>ระยะเวลา Zone 2</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[30, 45, 60, 75, 90].map((min) => (
+                        <button
+                          key={min}
+                          type="button"
+                          onClick={() => { update({ morningMinutes: min }); setZone2Custom(false) }}
+                          className="px-3 h-8 rounded-lg text-xs font-mono font-medium transition-colors"
+                          style={{
+                            background: !zone2Custom && form.morningMinutes === min ? "rgba(74,240,140,0.2)" : "rgba(255,255,255,0.05)",
+                            border: `1px solid ${!zone2Custom && form.morningMinutes === min ? "#4af08c" : "rgba(255,255,255,0.1)"}`,
+                            color: !zone2Custom && form.morningMinutes === min ? "#4af08c" : "#888",
+                          }}
+                        >
+                          {min} นาที
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setZone2Custom(!zone2Custom)}
+                        className="px-3 h-8 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: zone2Custom ? "rgba(74,240,140,0.15)" : "rgba(255,255,255,0.05)",
+                          border: `1px solid ${zone2Custom ? "#4af08c" : "rgba(255,255,255,0.1)"}`,
+                          color: zone2Custom ? "#4af08c" : "#888",
+                        }}
+                      >
+                        กำหนดเอง
+                      </button>
+                    </div>
+
+                    {zone2Custom && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={15}
+                          max={180}
+                          value={form.morningMinutes}
+                          onChange={(e) => update({ morningMinutes: parseInt(e.target.value) || 45 })}
+                          className="w-20 h-9 rounded-lg text-center font-mono text-sm"
+                          style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(74,240,140,0.4)", color: "#4af08c" }}
+                        />
+                        <span className="text-sm" style={{ color: "#666" }}>นาที</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Run mode: Outdoor / Treadmill */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-white">โหมดการวิ่ง</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    { value: "outdoor", label: "🌳 Outdoor", desc: "วิ่งกลางแจ้ง" },
+                    { value: "treadmill", label: "🏃 Treadmill", desc: "ลู่วิ่ง (แสดง km/h)" },
+                  ] as const).map(({ value, label, desc }) => {
+                    const isSelected = form.runMode === value
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => update({ runMode: value })}
+                        className="text-left p-3 rounded-xl border transition-all"
+                        style={{
+                          background: isSelected ? "rgba(232,255,74,0.08)" : "rgba(255,255,255,0.03)",
+                          borderColor: isSelected ? "#e8ff4a" : "rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        <p className="font-semibold text-sm" style={{ color: isSelected ? "#e8ff4a" : "#ccc" }}>{label}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "#666" }}>{desc}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Fitness */}
+          {step === 3 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-xl font-bold text-white">ผลงานที่ดีที่สุด (PR)</h2>
+                <p className="text-sm mt-1" style={{ color: "#888" }}>ไม่บังคับ — ระบบใช้คำนวณเพซที่เหมาะสม</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {([
+                  { key: "pr5k" as const, label: "5K", placeholder: "25:30", hint: "MM:SS", format: "MM:SS" as const },
+                  { key: "pr10k" as const, label: "10K", placeholder: "55:00", hint: "MM:SS", format: "MM:SS" as const },
+                  { key: "prHalf" as const, label: "ฮาล์ฟ 21.1K", placeholder: "2:05:00", hint: "H:MM:SS", format: "H:MM:SS" as const },
+                  { key: "prFull" as const, label: "มาราธอน 42.2K", placeholder: "4:30:00", hint: "H:MM:SS", format: "H:MM:SS" as const },
+                ] as const).map(({ key, label, placeholder, hint, format }) => {
+                  const hasError = prErrors[key]
+                  return (
+                    <div key={key} className="space-y-1.5">
+                      <Label>{label}</Label>
+                      <Input
+                        value={form[key]}
+                        onChange={(e) => update({ [key]: e.target.value })}
+                        placeholder={placeholder}
+                        style={{
+                          background: "rgba(255,255,255,0.05)",
+                          border: `1px solid ${hasError ? "#ff4a4a" : "rgba(255,255,255,0.12)"}`,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      />
+                      {hasError ? (
+                        <p className="text-xs" style={{ color: "#ff4a4a" }}>รูปแบบไม่ถูกต้อง ใช้ {hint}</p>
+                      ) : (
+                        <p className="text-xs" style={{ color: "#555" }}>รูปแบบ: {hint}</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="rounded-lg p-3 text-xs" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#666" }}>
+                💡 ถ้าไม่มี PR ระบบจะใช้ค่าเฉลี่ยตามระยะทาง {form.targetDistance ? `(${TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]})` : ""} และความเข้มข้นที่เลือก
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Intensity */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-xl font-bold text-white">ความเข้มข้นและพื้นสนาม</h2>
+              </div>
+
+              {/* Intensity */}
+              <div className="space-y-2">
+                <Label>ระดับความเข้มข้น</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {INTENSITY_OPTIONS.map((opt) => {
+                    const isSelected = form.intensity === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => update({ intensity: opt.value })}
+                        className="text-left p-3 rounded-xl border transition-all"
+                        style={{
+                          background: isSelected ? `${opt.color}10` : "rgba(255,255,255,0.03)",
+                          borderColor: isSelected ? opt.color : "rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        <div className="font-semibold text-sm" style={{ color: isSelected ? opt.color : "#ccc" }}>
+                          {opt.label}
+                        </div>
+                        <div className="text-xs mt-0.5" style={{ color: "#666" }}>{opt.desc}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Terrain */}
+              <div className="space-y-2">
+                <Label>ประเภทพื้นสนาม</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { value: "road", label: "🏙️ Road" },
+                    { value: "trail", label: "🌲 Trail" },
+                    { value: "track", label: "🏟️ Track" },
+                    { value: "mixed", label: "🔀 Mixed" },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => update({ terrainType: value })}
+                      className="px-3 h-9 rounded-lg text-sm transition-colors"
+                      style={{
+                        background: form.terrainType === value ? "rgba(232,255,74,0.12)" : "rgba(255,255,255,0.05)",
+                        border: `1px solid ${form.terrainType === value ? "#e8ff4a" : "rgba(255,255,255,0.1)"}`,
+                        color: form.terrainType === value ? "#e8ff4a" : "#888",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 6: Summary */}
+          {step === 5 && form.targetDistance && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-xl font-bold text-white">สรุปแผนซ้อม</h2>
+                <p className="text-sm mt-1" style={{ color: "#888" }}>ตรวจสอบข้อมูลก่อนสร้างแผน</p>
+              </div>
+
+              {/* Plan name */}
+              <div className="space-y-1.5">
+                <Label>ชื่อแผน</Label>
+                <Input
+                  value={form.name || `แผนซ้อม ${TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]} ${form.trainingWeeks} สัปดาห์`}
+                  onChange={(e) => update({ name: e.target.value })}
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)" }}
+                />
+              </div>
+
+              {/* Summary grid */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {[
+                  { label: "ระยะทาง", value: `${DISTANCE_CONFIGS[form.targetDistance as TargetDistance].icon} ${TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]}` },
+                  { label: "จำนวนสัปดาห์", value: `${form.trainingWeeks} สัปดาห์` },
+                  { label: "วันเริ่ม", value: form.startDate ? new Date(form.startDate).toLocaleDateString("th-TH") : "—" },
+                  { label: "วันแข่ง", value: form.raceDate ? new Date(form.raceDate).toLocaleDateString("th-TH") : "—" },
+                  { label: "วันซ้อม/สัปดาห์", value: `${form.daysPerWeek} วัน (${form.trainingDays.map((d) => DAYS_TH[d]).join(", ")})` },
+                  { label: "Long Run", value: `วัน${DAYS_TH[form.longRunDay]}` },
+                  { label: "ความเข้มข้น", value: { gentle: "ผ่อนคลาย", normal: "ปกติ", challenging: "ท้าทาย", elite: "Elite" }[form.intensity] },
+                  { label: "พื้นสนาม", value: form.terrainType },
+                  ...(form.pr5k ? [{ label: "PR 5K", value: form.pr5k }] : []),
+                  ...(form.prFull ? [{ label: "PR มาราธอน", value: form.prFull }] : []),
+                ].map(({ label, value }) => (
+                  <div key={label} className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <p className="text-xs mb-0.5" style={{ color: "#666" }}>{label}</p>
+                    <p className="font-medium text-white text-xs leading-tight">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {error && <p className="text-sm" style={{ color: "#ff4a4a" }}>{error}</p>}
+            </div>
+          )}
+          {/* ─── Navigation — flows right after content ─── */}
+          <div className="flex justify-between gap-3 pt-6">
+            <Button
+              variant="ghost"
+              onClick={() => step > 0 ? setStep(step - 1) : router.push("/plan")}
+              disabled={isPending}
+              style={{ color: "#888" }}
+            >
+              ← ย้อนกลับ
+            </Button>
+
+            {step < 5 ? (
+              <Button
+                onClick={handleNext}
+                disabled={!canNext()}
+                style={{ background: canNext() ? "#e8ff4a" : "rgba(255,255,255,0.1)", color: canNext() ? "#0a0a0f" : "#444", fontWeight: 600 }}
+              >
+                ถัดไป →
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={isPending}
+                style={{ background: "#e8ff4a", color: "#0a0a0f", fontWeight: 600, minWidth: 120 }}
+              >
+                {isPending ? "กำลังสร้างแผน..." : "สร้างแผน 🏃"}
+              </Button>
+            )}
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  )
+}

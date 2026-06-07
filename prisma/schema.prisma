@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── NextAuth required tables ───
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  plans       TrainingPlan[]
+  profile     RunnerProfile?
+  completions WorkoutCompletion[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── App-specific tables ───
+model RunnerProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age            Int?
+  targetDistance String
+  daysPerWeek    Int     @default(4)
+  trainingDays   String
+  longRunDay     Int     @default(6)
+  sessionTime    String  @default("evening")
+  morningMinutes Int?
+  morningZone2   Boolean @default(false)
+  eveningMinutes Int?
+  intensity      String  @default("normal")
+  terrainType    String  @default("road")
+  runMode        String  @default("outdoor")
+  conditions     String  @default("[]")
+  shoes          String  @default("[]")
+
+  pr5k   String?
+  pr10k  String?
+  prHalf String?
+  prFull String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans TrainingPlan[]
+}
+
+model TrainingPlan {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileId String?
+  profile   RunnerProfile? @relation(fields: [profileId], references: [id])
+
+  name           String   @default("แผนซ้อมวิ่ง")
+  targetDistance String
+  startDate      DateTime
+  raceDate       DateTime
+  trainingWeeks  Int
+  projectedTime  String?
+  planData       Json
+  isActive       Boolean  @default(true)
+
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  completions WorkoutCompletion[]
+
+  @@index([userId])
+}
+
+model WorkoutCompletion {
+  id         String  @id @default(cuid())
+  userId     String
+  planId     String
+  weekNumber Int
+  dayIndex   Int
+  completion Int     @default(0)
+  note       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, weekNumber, dayIndex])
+  @@index([userId])
+  @@index([planId])
+}

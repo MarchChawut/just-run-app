@@ -62,6 +62,8 @@ export type WorkoutType =
   | "drop_set"         // 1km→800m→600m→400m→200m, pace increases each rep
   | "broken_mile"      // tempo split into segments with brief rest
   | "fartlek_rolling"  // structured: 400m tempo + 400m steady, continuous
+  // ─── Trail-specific types ───
+  | "power_hike"       // trail: power hiking on steep climbs (arm drive, high cadence)
 
 export const WORKOUT_LABELS: Record<WorkoutType, string> = {
   rest: "พัก",
@@ -80,6 +82,7 @@ export const WORKOUT_LABELS: Record<WorkoutType, string> = {
   drop_set: "Drop Sets",
   broken_mile: "Broken Mile",
   fartlek_rolling: "Fartlek Rolling",
+  power_hike: "Power Hike",
 }
 
 export const WORKOUT_COLORS: Record<WorkoutType, string> = {
@@ -99,6 +102,7 @@ export const WORKOUT_COLORS: Record<WorkoutType, string> = {
   drop_set: "#ff6a4a",
   broken_mile: "#ff7a4a",
   fartlek_rolling: "#c8ff4a",
+  power_hike: "#a0522d",
 }
 
 // ─── Training phase ────────────────────────────────────────────────────────

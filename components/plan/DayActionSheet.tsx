@@ -146,9 +146,10 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
     if (!planInput) return {} as Record<string, string>
     try { return calculatePaces(planInput as PlanGenerationInput) } catch { return {} as Record<string, string> }
   }, [planInput])
+  const isTrail = planInput?.targetDistance === "trail"
   const sections = useMemo(
-    () => generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2]),
-    [day.type, day.distance, paces]
+    () => generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2], isTrail),
+    [day.type, day.distance, paces, isTrail]
   )
 
   const color = WORKOUT_COLORS[day.type] ?? "#888"

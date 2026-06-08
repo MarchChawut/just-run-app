@@ -30,7 +30,7 @@ export const DISTANCE_CONFIGS: Record<TargetDistance, DistanceConfig> = {
   "full_marathon": { label: "Full Marathon (42.2K)", km: 42.195, minWeeks: 16, maxWeeks: 24, recommendedWeeks: [16, 18, 20, 24], baseKmPerWeek: 40, peakKmPerWeek: 80, longRunMax: 35, icon: "🏅" },
   "ultra_50":    { label: "Ultra 50K", km: 50, minWeeks: 20, maxWeeks: 32, recommendedWeeks: [20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, icon: "💪" },
   "ultra_100":   { label: "Ultra 100K", km: 100, minWeeks: 24, maxWeeks: 36, recommendedWeeks: [24, 28, 32, 36], baseKmPerWeek: 60, peakKmPerWeek: 120, longRunMax: 60, icon: "🔥" },
-  "trail":       { label: "Trail Running", km: 30, minWeeks: 12, maxWeeks: 24, recommendedWeeks: [12, 16, 20, 24], baseKmPerWeek: 35, peakKmPerWeek: 70, longRunMax: 30, icon: "🌲" },
+  "trail":       { label: "Trail Running (15K)", km: 15, minWeeks: 12, maxWeeks: 20, recommendedWeeks: [12, 14, 16, 20], baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 20, icon: "🌲" },
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────
@@ -111,7 +111,8 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   }
 
   if (!racePace || isNaN(racePace)) {
-    racePace = ({ "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390, "full_marathon": 390, "ultra_50": 420, "ultra_100": 480, "trail": 450 } as Record<TargetDistance, number>)[input.targetDistance]
+    // trail default: 480 sec/km (8:00/km avg for 15K trail)
+    racePace = ({ "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390, "full_marathon": 390, "ultra_50": 420, "ultra_100": 480, "trail": 480 } as Record<TargetDistance, number>)[input.targetDistance]
   }
 
   // Adjust pace based on source distance
@@ -124,6 +125,9 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   // Intensity modifier
   const intensityMod = ({ gentle: 1.05, normal: 1, challenging: 0.97, elite: 0.94 } as Record<string, number>)[input.intensity]
   r *= intensityMod
+
+  // Trail terrain modifier: +30 sec/km to account for technical terrain
+  if (input.targetDistance === "trail") r += 30
 
   return {
     easy: clampPace(r * 1.25),
@@ -143,6 +147,8 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
     drop_set:        clampPace(r * 0.88),
     broken_mile:     clampPace(r * 1.02),
     fartlek_rolling: clampPace(r * 1.07),
+    // ─── Trail-specific ───
+    power_hike:      clampPace(r * 1.60), // power hiking pace (~easy × 1.28)
   }
 }
 
@@ -153,6 +159,8 @@ const RPE_BASE: Record<WorkoutType, number> = {
   fartlek: 6, hills: 7, race_pace: 7, tempo: 8, interval: 9, long: 5,
   // Sports science types
   progressive: 4, pyramid: 8, drop_set: 8, broken_mile: 7, fartlek_rolling: 6,
+  // Trail-specific
+  power_hike: 4,
 }
 
 /** Get RPE for a workout type and phase (verbatim: w()) */
@@ -166,7 +174,7 @@ export function getRpe(type: WorkoutType, phase: TrainingPhase): number {
 // ─── Coaching notes ────────────────────────────────────────────────────────
 
 /** Get coaching notes for a workout (verbatim: pe()) */
-export function getNotes(type: WorkoutType, phase: TrainingPhase, weekNum: number, zones?: HRZones): string {
+export function getNotes(type: WorkoutType, phase: TrainingPhase, weekNum: number, zones?: HRZones, isTrail?: boolean): string {
   const z2 = zones ? `HR ${zones.zone2[0]}–${zones.zone2[1]} bpm (Zone 2)` : "HR ต่ำกว่า 75% max HR"
   const z3 = zones ? `HR ${zones.zone3[0]}–${zones.zone3[1]} bpm (Zone 3)` : "HR ~70–80% max"
   const z4 = zones ? `HR ${zones.zone4[0]}–${zones.zone4[1]} bpm (Zone 4)` : "HR ~80–90% max"
@@ -195,7 +203,12 @@ export function getNotes(type: WorkoutType, phase: TrainingPhase, weekNum: numbe
       return `💪 เพซ tempo = รู้สึก 'หนักแต่ยังไหว' · ${z4} · ควบคุมลมหายใจ`
     case "race_pace":
       return "🎯 ฝึกความรู้สึกเพซที่จะแข่งจริง — จำ rhythm ไว้"
+    case "power_hike":
+      return `🥾 Power Hike — ก้าวสั้น จังหวะเร็ว · arm drive แกว่งแรง · ${easyHR} · Power hiking ≠ แพ้ คือทักษะ trail ที่ต้องฝึก`
     case "long":
+      if (isTrail) return phase === "peak"
+        ? `⛰️ Long trail run — Time on feet > pace · hike ทุกเนิน >12% · สะสม elevation 300m+ · กิน gel ทุก 45 นาที`
+        : `🌲 Long trail run ช้าๆ สบาย — ${z2} · Power hike ทุกที่ที่ชัน อย่าฝืนวิ่ง`
       return phase === "peak"
         ? `⚡ Long run สำคัญมาก — กิน gel ทุก 45 นาที · ${z3}`
         : `🏃 Long run ช้าๆ สบาย — ${z2} ตลอดการวิ่ง`
@@ -243,6 +256,7 @@ export function buildDescription(type: WorkoutType, distance: number, pace: stri
     case "drop_set":        return `Drop Sets ${d} km · เพซ ${pace}/km — 1km→800m→600m→400m→200m · เพซเร็วขึ้นทุก set`
     case "broken_mile":     return `Broken Mile ${d} km · เพซ ${pace}/km — แบ่งเป็น segment ย่อย พักสั้น 30-60 วิ · ฝึกความแข็งแกร่งและจบแรง`
     case "fartlek_rolling":  return `Fartlek Rolling ${d} km · เพซ ${pace}/km — 400m Tempo + 400m Steady สลับต่อเนื่อง ไม่หยุดพัก`
+    case "power_hike":      return `Power Hike ${d} km — เดินเร็วด้วย arm drive บนเนินชัน ฝึกทักษะ trail หลัก`
     default:                return `Run ${d} km — เพซ ${pace}/km`
   }
 }
@@ -294,6 +308,7 @@ export function assignDaySlots(
   weekNum: number,
   totalWeeks: number,
   phase: TrainingPhase,
+  targetDistance?: TargetDistance,
 ): (DaySlot | null)[] {
   const isRecoveryWeek =
     (weekNum % 4 === 0 && phase === "build") || weekNum >= totalWeeks - 2
@@ -326,13 +341,43 @@ export function assignDaySlots(
       6: ["easy", "race_pace", "easy", "progressive", "easy"],
     },
   }
+
+  // Trail-specific patterns: hills + power hiking emphasis
+  const trailPatterns: Record<TrainingPhase, Record<number, WorkoutType[]>> = {
+    base: {
+      3: ["easy", "hills"],
+      4: ["easy", "hills", "progressive"],
+      5: ["easy", "hills", "easy", "progressive"],
+      6: ["easy", "hills", "easy", "progressive", "power_hike"],
+    },
+    build: {
+      3: ["hills", "power_hike"],
+      4: ["hills", "power_hike", "fartlek_rolling"],
+      5: ["hills", "power_hike", "easy", "fartlek_rolling"],
+      6: ["hills", "power_hike", "easy", "fartlek_rolling", "hills"],
+    },
+    peak: {
+      3: ["hills", "race_pace"],
+      4: ["hills", "race_pace", "power_hike"],
+      5: ["hills", "race_pace", "easy", "power_hike"],
+      6: ["hills", "race_pace", "easy", "power_hike", "hills"],
+    },
+    taper: {
+      3: ["easy", "race_pace"],
+      4: ["easy", "race_pace", "easy"],
+      5: ["easy", "race_pace", "easy", "progressive"],
+      6: ["easy", "race_pace", "easy", "progressive", "easy"],
+    },
+  }
+
+  const activePatterns = targetDistance === "trail" ? trailPatterns : phasePatterns
   const workoutPattern: WorkoutType[] =
-    phasePatterns[phase]?.[days] ?? ["easy", "tempo"]
+    activePatterns[phase]?.[days] ?? ["easy", "hills"]
 
   // Hard workout types that get downgraded to easy on recovery weeks
   const HARD_TYPES = new Set<WorkoutType>([
     "interval", "tempo", "pyramid", "drop_set", "broken_mile",
-    "race_pace", "fartlek_rolling",
+    "race_pace", "fartlek_rolling", "hills",
   ])
 
   const longRunRatio =
@@ -398,6 +443,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
   const weeklyKm = generateWeeklyKm(input)
   const weeks: GeneratedWeek[] = []
   const zones = input.age ? calcHRZones(input.age) : undefined
+  const isTrail = input.targetDistance === "trail"
 
   for (let i = 0; i < input.trainingWeeks; i++) {
     const weekNum = i + 1
@@ -416,7 +462,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
 
     const daySlots = assignDaySlots(
       trainingDays, longRunDay, input.daysPerWeek,
-      weekNum, input.trainingWeeks, phase
+      weekNum, input.trainingWeeks, phase, input.targetDistance
     )
 
     const days: GeneratedDay[] = daySlots.map((slot) => {
@@ -427,7 +473,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
           pace: "N/A",
           description: buildDescription("rest", 0, "N/A"),
           rpe: 0,
-          notes: getNotes("rest", phase, weekNum, zones),
+          notes: getNotes("rest", phase, weekNum, zones, isTrail),
         }
       }
       const distance = Math.max(2, Math.round(totalKm * slot.ratio * 10) / 10)
@@ -438,7 +484,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
         pace,
         description: buildDescription(slot.type, distance, pace),
         rpe: getRpe(slot.type, phase),
-        notes: getNotes(slot.type, phase, weekNum, zones),
+        notes: getNotes(slot.type, phase, weekNum, zones, isTrail),
       }
     })
 

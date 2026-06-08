@@ -418,12 +418,76 @@ function buildRecovery(distance: number, recoveryPace: string, treadmill: boolea
   ]
 }
 
+// ─── Trail-specific generators ─────────────────────────────────────────────
+
+function buildPowerHike(distance: number, easyPace: string, treadmill: boolean): WorkoutSection[] {
+  const d = distance.toFixed(1)
+  return [
+    warmupSection(easyPace, treadmill),
+    {
+      key: "main",
+      label: "Power Hiking",
+      type: "main",
+      color: "#a0522d",
+      steps: [
+        { id: 3, activity: "RUN", description: "วิ่ง Easy บนทางราบ", distance: `${(distance * 0.3).toFixed(1)} km`, pace: easyPace, paceNote: "เก็บแรงก่อนถึงเนิน — Zone 2 เท่านั้น" },
+        { id: 4, activity: "WALK", description: "Power Hike ขึ้นเนิน", distance: `${(distance * 0.4).toFixed(1)} km`, paceNote: "ก้าวสั้น จังหวะเร็ว — arm drive แกว่งแรง — หลังตรง — ไม่ก้มหน้า" },
+        { id: 5, activity: "RUN", description: "วิ่งลงเนินเทคนิค", distance: `${(distance * 0.3).toFixed(1)} km`, paceNote: "เท้าแตะพื้นใต้สะโพก — ไม่เบรกด้วยส้นเท้า — มองพื้น 3-4 ก้าวล่วงหน้า" },
+      ],
+      coachNote: `Power hiking ${d} km · Power hiking ≠ แพ้ · นักวิ่ง elite ทุกคน hike เนินชัน · ฝึกให้ชำนาญ เพราะ trail race ขึ้นอยู่กับ hike ที่มีประสิทธิภาพ`,
+    },
+    cooldownSection(easyPace, 6),
+  ]
+}
+
+function buildTrailHills(distance: number, easyPace: string, hillPace: string, treadmill: boolean): WorkoutSection[] {
+  const reps = 6
+  return [
+    warmupSection(easyPace, treadmill),
+    {
+      key: "repeat",
+      label: `Trail Hill Repeats ×${reps}`,
+      type: "repeat",
+      color: "#ff8c4a",
+      repeatCount: reps,
+      steps: [
+        { id: 3, activity: "RUN", description: "วิ่งขึ้นเนิน (grade <12%)", distance: "300 m", pace: hillPace, paceNote: "Short stride · high cadence · lean into hill · ไม่หยุดกลางทาง" },
+        { id: 4, activity: "WALK", description: "Power hike ขึ้น (grade >12%)", distance: "100 m", paceNote: "เปลี่ยนเป็น hike เมื่อชันขึ้น — ประหยัดพลังงาน ไม่ต้องอาย" },
+        { id: 5, activity: "RUN", description: "วิ่งลงเนินเทคนิค", duration: "90 วินาที", paceNote: "Lean slightly forward · quick feet · มองพื้นล่วงหน้า 3m · ห้ามเบรกด้วยส้นเท้า" },
+      ],
+      coachNote: "Trail hill = วิ่งขึ้น + hike ชัน + เทคนิคลง · ลงเนินชำนาญทำให้ race เร็วขึ้นโดยไม่เหนื่อยเพิ่ม · ดีกว่า road hills สำหรับ trail race",
+    },
+    cooldownSection(easyPace, 6),
+  ]
+}
+
+function buildTrailLong(distance: number, easyPace: string, treadmill: boolean): WorkoutSection[] {
+  const hikeDist = (distance * 0.35).toFixed(1)
+  const runDist = (distance * 0.50).toFixed(1)
+  return [
+    {
+      key: "main",
+      label: "Trail Long Run",
+      type: "main",
+      color: "#e8ff4a",
+      steps: [
+        { id: 1, activity: "RUN", description: "Warm-up jog", distance: "1.5 km", pace: easyPace, paceNote: "เริ่มช้ามาก — ร่างกายต้องใช้เวลา warm บน trail" },
+        { id: 2, activity: "RUN", description: "Easy trail run — ทางราบและลงเนิน", distance: `${runDist} km`, pace: easyPace, paceNote: "Zone 2 ตลอด — ถ้า HR ขึ้น ช้าลงก่อน ไม่ต้องฝืน" },
+        { id: 3, activity: "WALK", description: "Power hike — ทุกเนินที่ชัน", distance: `${hikeDist} km`, paceNote: "Hike อย่างมีจุดมุ่งหมาย — arm drive ตลอด — ไม่หยุดพัก" },
+        { id: 4, activity: "RUN", description: "Cool-down jog", distance: "1 km", pace: derivePace(easyPace, 1.1), paceNote: "ช้ามากๆ — ขาอาจหนัก นั่นคือ training effect ที่ต้องการ" },
+      ],
+      coachNote: "Long trail run วัดด้วย time-on-feet ไม่ใช่ km · ถ้าเหนื่อยมาก → hike ก่อน อย่าฝืนวิ่ง · จบแล้วต้องกินคาร์บภายใน 30 นาที",
+    },
+  ]
+}
+
 // ─── Main export ───────────────────────────────────────────────────────────
 
 export function generateWorkoutSteps(
   type: WorkoutType,
   distance: number,
   paces: Record<WorkoutType, string>,
+  isTrail = false,
 ): WorkoutSection[] {
   const easy = paces.easy ?? "7:00"
   const tempo = paces.tempo ?? "5:30"
@@ -444,11 +508,16 @@ export function generateWorkoutSteps(
     case "pyramid":   return buildPyramid(distance, easy, interval, false)
     case "drop_set":  return buildDropSet(distance, easy, interval, false)
     case "broken_mile": return buildBrokenMile(distance, easy, tempo, false)
-    case "long":      return buildLong(distance, easy, longPace, false)
+    case "long":      return isTrail
+      ? buildTrailLong(distance, easy, false)
+      : buildLong(distance, easy, longPace, false)
     case "race_pace": return buildRacePace(distance, easy, racePace, false)
-    case "hills":     return buildHills(distance, easy, hillPace, false)
+    case "hills":     return isTrail
+      ? buildTrailHills(distance, easy, hillPace, false)
+      : buildHills(distance, easy, hillPace, false)
     case "fartlek":   return buildFartlekRolling(distance, easy, derivePace(easy, 0.85), steadyPace, false)
     case "strides":   return buildEasy(distance, easy, false)
+    case "power_hike": return buildPowerHike(distance, easy, false)
     case "cross_train": return [{
       key: "main", label: "Cross Training", type: "main", color: "#4aff8c",
       steps: [

@@ -145,6 +145,31 @@ export type GeneratedPlan = {
   improvementRange: string
 }
 
+// ─── Formula config (stored in DB, editable in Admin) ─────────────────────
+export type PaceMultipliers = {
+  easy: number; long: number; race_pace: number; tempo: number
+  interval: number; recovery: number; fartlek: number; hills: number
+  strides: number; progressive: number; pyramid: number; drop_set: number
+  broken_mile: number; fartlek_rolling: number; power_hike: number
+}
+
+export type PhasePatternMap = {
+  base: Record<string, string[]>
+  build: Record<string, string[]>
+  peak: Record<string, string[]>
+  taper: Record<string, string[]>
+}
+
+export type FormulaSettings = {
+  defaultRacePace: number    // sec/km when no PR — e.g. 450 for 5K
+  terrainModifier: number    // extra sec/km for terrain — 0 road, 30 trail
+  baseKmPerWeek: number
+  peakKmPerWeek: number
+  longRunMax: number
+  paceMultipliers: PaceMultipliers
+  phasePatterns?: PhasePatternMap  // null = use built-in patterns
+}
+
 // ─── Engine input ──────────────────────────────────────────────────────────
 export type PlanGenerationInput = {
   targetDistance: TargetDistance
@@ -157,8 +182,9 @@ export type PlanGenerationInput = {
   pr10k?: string
   prHalf?: string
   prFull?: string
-  age?: number         // used for HR zone calculations (Tanaka formula)
+  age?: number
   morningZone2?: boolean
+  formula?: FormulaSettings   // loaded from DB by server action; overrides hardcoded defaults
 }
 
 // ─── Wizard state ──────────────────────────────────────────────────────────

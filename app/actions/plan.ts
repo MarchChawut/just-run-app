@@ -5,6 +5,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { createPlanWizardSchema, TARGET_DISTANCE_VALUES, type CreatePlanWizardInput } from "@/lib/validations"
 import { generatePlan, DISTANCE_CONFIGS } from "@/lib/trainingEngine"
+import { loadFormula } from "@/lib/formulaLoader"
 import type { TargetDistance } from "@/types"
 
 export async function createPlanFromWizard(input: CreatePlanWizardInput) {
@@ -24,11 +25,14 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
   const config = DISTANCE_CONFIGS[data.targetDistance as TargetDistance]
   const trainingWeeks = Math.max(config.minWeeks, Math.min(config.maxWeeks, data.trainingWeeks))
 
-  // Read existing profile age for HR zone calculations
-  const existingProfile = await prisma.runnerProfile.findUnique({
-    where: { userId: session.user.id },
-    select: { age: true },
-  }).catch(() => null)
+  // Load formula config + runner profile in parallel
+  const [formula, existingProfile] = await Promise.all([
+    loadFormula(data.targetDistance),
+    prisma.runnerProfile.findUnique({
+      where: { userId: session.user.id },
+      select: { age: true },
+    }).catch(() => null),
+  ])
 
   // Generate the plan
   const engineInput = {
@@ -44,6 +48,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
     prFull: data.prFull || undefined,
     age: existingProfile?.age ?? undefined,
     morningZone2: data.morningZone2,
+    formula,
   }
 
   const generatedPlan = generatePlan(engineInput)

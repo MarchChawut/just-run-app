@@ -136,3 +136,26 @@ model WorkoutCompletion {
   @@index([userId])
   @@index([planId])
 }
+
+// ─── Admin-managed config ───
+model FormulaConfig {
+  id             String   @id @default(cuid())
+  targetDistance String   @unique // "5k"|"mini_marathon"|"half_marathon"|"full_marathon"|"ultra"|"trail"
+  config         Json     // FormulaSettings JSON
+  updatedAt      DateTime @updatedAt
+  updatedBy      String?  // email of last editor
+}
+
+model MealItem {
+  id          String   @id @default(cuid())
+  category    String   // "rest"|"easy"|"long"|"hard"|"moderate"
+  slot        String   // "breakfast"|"lunch"|"snack"|"dinner"
+  name        String
+  note        String?  @db.Text
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, slot])
+}

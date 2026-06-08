@@ -8,6 +8,7 @@ import type {
   PlanGenerationInput,
 } from "@/types"
 import { calcHRZones, type HRZones } from "@/lib/hrZones"
+import { DEFAULT_MULTIPLIERS } from "@/lib/formulaDefaults"
 
 // ─── Distance configurations ───────────────────────────────────────────────
 export type DistanceConfig = {
@@ -111,8 +112,10 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   }
 
   if (!racePace || isNaN(racePace)) {
-    // trail default: 480 sec/km (8:00/km avg for 15K trail)
-    racePace = ({ "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390, "full_marathon": 390, "ultra_50": 420, "ultra_100": 480, "trail": 480 } as Record<TargetDistance, number>)[input.targetDistance]
+    // Use formula override if available, else hardcoded default per distance
+    racePace = input.formula?.defaultRacePace ?? (
+      { "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390, "full_marathon": 390, "ultra_50": 420, "ultra_100": 480, "trail": 480 } as Record<TargetDistance, number>
+    )[input.targetDistance]
   }
 
   // Adjust pace based on source distance
@@ -126,29 +129,31 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   const intensityMod = ({ gentle: 1.05, normal: 1, challenging: 0.97, elite: 0.94 } as Record<string, number>)[input.intensity]
   r *= intensityMod
 
-  // Trail terrain modifier: +30 sec/km to account for technical terrain
-  if (input.targetDistance === "trail") r += 30
+  // Terrain modifier — use formula override or default (30 for trail, 0 otherwise)
+  const terrainMod = input.formula?.terrainModifier ?? (input.targetDistance === "trail" ? 30 : 0)
+  r += terrainMod
+
+  // Use formula pace multipliers if available, else DEFAULT_MULTIPLIERS
+  const m = { ...DEFAULT_MULTIPLIERS, ...(input.formula?.paceMultipliers ?? {}) }
 
   return {
-    easy: clampPace(r * 1.25),
-    long: clampPace(r * 1.15),
-    race_pace: clampPace(r * 1.04),
-    tempo: clampPace(r),
-    interval: clampPace(r * 0.88),
-    recovery: clampPace(r * 1.35),
-    fartlek: clampPace(r * 1.1),
-    hills: clampPace(r * 0.95),
-    strides: clampPace(r * 1.2),
+    easy: clampPace(r * m.easy),
+    long: clampPace(r * m.long),
+    race_pace: clampPace(r * m.race_pace),
+    tempo: clampPace(r * m.tempo),
+    interval: clampPace(r * m.interval),
+    recovery: clampPace(r * m.recovery),
+    fartlek: clampPace(r * m.fartlek),
+    hills: clampPace(r * m.hills),
+    strides: clampPace(r * m.strides),
     cross_train: "N/A",
     rest: "N/A",
-    // ─── Sports science types ───
-    progressive:     clampPace(r * 1.15),
-    pyramid:         clampPace(r * 0.88),
-    drop_set:        clampPace(r * 0.88),
-    broken_mile:     clampPace(r * 1.02),
-    fartlek_rolling: clampPace(r * 1.07),
-    // ─── Trail-specific ───
-    power_hike:      clampPace(r * 1.60), // power hiking pace (~easy × 1.28)
+    progressive:     clampPace(r * m.progressive),
+    pyramid:         clampPace(r * m.pyramid),
+    drop_set:        clampPace(r * m.drop_set),
+    broken_mile:     clampPace(r * m.broken_mile),
+    fartlek_rolling: clampPace(r * m.fartlek_rolling),
+    power_hike:      clampPace(r * m.power_hike),
   }
 }
 
@@ -267,8 +272,8 @@ export function buildDescription(type: WorkoutType, distance: number, pace: stri
 export function generateWeeklyKm(input: PlanGenerationInput): number[] {
   const config = DISTANCE_CONFIGS[input.targetDistance]
   const n = input.trainingWeeks
-  const baseKm = config.baseKmPerWeek
-  const peakKm = config.peakKmPerWeek
+  const baseKm = input.formula?.baseKmPerWeek ?? config.baseKmPerWeek
+  const peakKm = input.formula?.peakKmPerWeek ?? config.peakKmPerWeek
   const intensityMod = ({ gentle: 0.8, normal: 1, challenging: 1.1, elite: 1.2 } as Record<string, number>)[input.intensity]
   const weeks: number[] = []
 
@@ -309,6 +314,7 @@ export function assignDaySlots(
   totalWeeks: number,
   phase: TrainingPhase,
   targetDistance?: TargetDistance,
+  formulaPatterns?: import("@/types").PhasePatternMap,
 ): (DaySlot | null)[] {
   const isRecoveryWeek =
     (weekNum % 4 === 0 && phase === "build") || weekNum >= totalWeeks - 2
@@ -370,9 +376,10 @@ export function assignDaySlots(
     },
   }
 
-  const activePatterns = targetDistance === "trail" ? trailPatterns : phasePatterns
-  const workoutPattern: WorkoutType[] =
-    activePatterns[phase]?.[days] ?? ["easy", "hills"]
+  // Priority: formula DB patterns (string keys) > trail/road defaults (number keys)
+  const workoutPattern: WorkoutType[] = formulaPatterns
+    ? ((formulaPatterns[phase]?.[String(days)] ?? formulaPatterns[phase]?.[days]) as WorkoutType[] | undefined) ?? ["easy", "hills"]
+    : (targetDistance === "trail" ? trailPatterns : phasePatterns)[phase]?.[days] ?? ["easy", "hills"]
 
   // Hard workout types that get downgraded to easy on recovery weeks
   const HARD_TYPES = new Set<WorkoutType>([
@@ -462,7 +469,8 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
 
     const daySlots = assignDaySlots(
       trainingDays, longRunDay, input.daysPerWeek,
-      weekNum, input.trainingWeeks, phase, input.targetDistance
+      weekNum, input.trainingWeeks, phase, input.targetDistance,
+      input.formula?.phasePatterns
     )
 
     const days: GeneratedDay[] = daySlots.map((slot) => {

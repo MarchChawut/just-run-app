@@ -125,6 +125,7 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
   const [customValue, setCustomValue] = useState(existing?.completion?.toString() ?? "")
   const [note, setNote] = useState(existing?.note ?? "")
   const [isPending, startTransition] = useTransition()
+  const [saveError, setSaveError] = useState("")
 
   // Meal state: random index per slot
   const meals = useMemo(() => getMealsForWorkout(day.type), [day.type])
@@ -158,11 +159,14 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
 
   const save = (pct: number) => {
     const n = note.trim() || undefined
+    setSaveError("")
     startTransition(async () => {
       const result = await saveCompletion({ planId, weekNumber, dayIndex, completion: pct, note: n })
       if ("success" in result) {
         onSaved(completionKey, { completion: pct, note: n ?? null })
         onClose()
+      } else {
+        setSaveError(result.error ?? "บันทึกไม่สำเร็จ — กรุณาลองใหม่")
       }
     })
   }
@@ -349,6 +353,11 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
               className="w-full h-10 rounded-lg px-3 text-sm"
               style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#ccc" }}
             />
+            {saveError && (
+              <p className="text-xs text-center py-1.5 rounded-lg" style={{ color: "#ff4a4a", background: "rgba(255,74,74,0.08)", border: "1px solid rgba(255,74,74,0.2)" }}>
+                {saveError}
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -48,19 +48,24 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
 
   const generatedPlan = generatePlan(engineInput)
 
-  const plan = await prisma.trainingPlan.create({
-    data: {
-      userId: session.user.id,
-      name: data.name,
-      targetDistance: data.targetDistance,
-      startDate: start,
-      raceDate: race,
-      trainingWeeks,
-      projectedTime: generatedPlan.projectedFinishTime,
-      planData: generatedPlan as object,
-      isActive: true,
-    },
-  })
+  let plan
+  try {
+    plan = await prisma.trainingPlan.create({
+      data: {
+        userId: session.user.id,
+        name: data.name,
+        targetDistance: data.targetDistance,
+        startDate: start,
+        raceDate: race,
+        trainingWeeks,
+        projectedTime: generatedPlan.projectedFinishTime,
+        planData: generatedPlan as object,
+        isActive: true,
+      },
+    })
+  } catch {
+    return { error: "ไม่สามารถบันทึกแผนได้ — กรุณาลองใหม่" }
+  }
 
   // Upsert RunnerProfile with wizard training params
   await prisma.runnerProfile.upsert({
@@ -121,7 +126,11 @@ export async function updatePlan(planId: string, data: { name?: string; isActive
   if (data.name !== undefined) updateData.name = data.name.trim() || "แผนซ้อมวิ่ง"
   if (data.isActive !== undefined) updateData.isActive = data.isActive
 
-  await prisma.trainingPlan.update({ where: { id: planId }, data: updateData })
+  try {
+    await prisma.trainingPlan.update({ where: { id: planId }, data: updateData })
+  } catch {
+    return { error: "ไม่สามารถอัปเดตแผนได้ — กรุณาลองใหม่" }
+  }
 
   revalidatePath("/plan")
   revalidatePath("/dashboard")
@@ -139,7 +148,11 @@ export async function deletePlan(planId: string) {
   })
   if (!plan) return { error: "ไม่พบแผนซ้อม" }
 
-  await prisma.trainingPlan.delete({ where: { id: planId } })
+  try {
+    await prisma.trainingPlan.delete({ where: { id: planId } })
+  } catch {
+    return { error: "ไม่สามารถลบแผนได้ — กรุณาลองใหม่" }
+  }
 
   revalidatePath("/plan")
   revalidatePath("/dashboard")
@@ -167,18 +180,22 @@ export async function createPlan(formData: FormData) {
 
   const trainingWeeks = Math.max(1, Math.round((race.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
 
-  await prisma.trainingPlan.create({
-    data: {
-      userId: session.user.id,
-      name,
-      targetDistance,
-      startDate: start,
-      raceDate: race,
-      trainingWeeks,
-      planData: { weeks: [] },
-      isActive: true,
-    },
-  })
+  try {
+    await prisma.trainingPlan.create({
+      data: {
+        userId: session.user.id,
+        name,
+        targetDistance,
+        startDate: start,
+        raceDate: race,
+        trainingWeeks,
+        planData: { weeks: [] },
+        isActive: true,
+      },
+    })
+  } catch {
+    return { error: "ไม่สามารถบันทึกแผนได้ — กรุณาลองใหม่" }
+  }
 
   revalidatePath("/plan")
   revalidatePath("/dashboard")

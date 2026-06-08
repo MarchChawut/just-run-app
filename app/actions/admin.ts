@@ -144,14 +144,18 @@ export async function getAdminStats() {
   const check = await checkAdmin()
   if ("error" in check) return check
 
-  const [userCount, planCount, activePlanCount, formulaCount, mealCount, recentLogs] = await Promise.all([
+  const [userCount, planCount, activePlanCount, formulaCount, mealCount] = await Promise.all([
     prisma.user.count(),
     prisma.trainingPlan.count(),
     prisma.trainingPlan.count({ where: { isActive: true } }),
-    prisma.formulaConfig.count(),
-    prisma.mealItem.count({ where: { isActive: true } }),
-    prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.formulaConfig.count().catch(() => 0),
+    prisma.mealItem.count({ where: { isActive: true } }).catch(() => 0),
   ])
+
+  // ActivityLog table may not exist yet (run prisma db push to create)
+  const recentLogs = await prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 })
+    .catch(() => [])
+
   return { success: true, userCount, planCount, activePlanCount, formulaCount, mealCount, recentLogs }
 }
 
@@ -187,20 +191,25 @@ export async function getLogs(opts?: { action?: string; userId?: string; cursor?
   if ("error" in check) return check
 
   const limit = opts?.limit ?? 50
-  const logs = await prisma.activityLog.findMany({
-    where: {
-      ...(opts?.action ? { action: opts.action } : {}),
-      ...(opts?.userId ? { userId: opts.userId } : {}),
-      ...(opts?.cursor ? { createdAt: { lt: new Date(opts.cursor) } } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: limit + 1,
-  })
+  try {
+    const logs = await prisma.activityLog.findMany({
+      where: {
+        ...(opts?.action ? { action: opts.action } : {}),
+        ...(opts?.userId ? { userId: opts.userId } : {}),
+        ...(opts?.cursor ? { createdAt: { lt: new Date(opts.cursor) } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+    })
 
-  const hasMore = logs.length > limit
-  return {
-    success: true,
-    logs: hasMore ? logs.slice(0, limit) : logs,
-    nextCursor: hasMore ? logs[limit - 1].createdAt.toISOString() : null,
+    const hasMore = logs.length > limit
+    return {
+      success: true,
+      logs: hasMore ? logs.slice(0, limit) : logs,
+      nextCursor: hasMore ? logs[limit - 1].createdAt.toISOString() : null,
+    }
+  } catch {
+    // ActivityLog table not created yet
+    return { success: true, logs: [], nextCursor: null, tableNotReady: true }
   }
 }

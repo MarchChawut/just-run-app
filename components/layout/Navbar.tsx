@@ -13,9 +13,10 @@ import type { SessionUser } from "@/types"
 
 type NavbarProps = {
   user: SessionUser
+  isAdmin?: boolean
 }
 
-export function Navbar({ user }: NavbarProps) {
+export function Navbar({ user, isAdmin }: NavbarProps) {
   return (
     <header className="border-b border-border bg-background">
       <div className="flex h-14 items-center justify-between px-4">
@@ -42,6 +43,16 @@ export function Navbar({ user }: NavbarProps) {
             <DropdownMenuItem>
               <Link href="/profile" className="w-full">โปรไฟล์</Link>
             </DropdownMenuItem>
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <Link href="/admin" className="w-full flex items-center gap-2">
+                    <span>⚙️</span> Admin Dashboard
+                  </Link>
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"

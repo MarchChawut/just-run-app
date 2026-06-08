@@ -148,3 +148,34 @@
     @apply font-sans;
   }
 }
+
+/* ─── Form control dark-mode fixes ─── */
+
+/* Native <select> dark theme — prevents light dropdown on dark pages */
+select {
+  color-scheme: dark;
+}
+
+/* Hide number input browser spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Dim placeholder text so it doesn't look like filled value */
+::placeholder {
+  color: #3a3a3a !important;
+  opacity: 1;
+}
+
+/* Cursor pointer on all buttons by default */
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}

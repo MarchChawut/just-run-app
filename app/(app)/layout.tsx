@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
+import { isAdmin } from "@/lib/auth-utils"
 import { Navbar } from "@/components/layout/Navbar"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { BottomNav } from "@/components/layout/BottomNav"
@@ -12,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Navbar user={{ id, name, email, image }} />
+      <Navbar user={{ id, name, email, image }} isAdmin={isAdmin(email)} />
       <div className="flex flex-1 min-h-0">
         {/* Sidebar: desktop only */}
         <div className="hidden md:block">

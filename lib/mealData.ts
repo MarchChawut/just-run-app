@@ -18,7 +18,7 @@ function getCategory(type: WorkoutType): WorkoutCategory {
   if (type === "rest" || type === "recovery") return "rest"
   if (type === "long") return "long"
   if (type === "tempo" || type === "interval" || type === "pyramid" || type === "drop_set" || type === "broken_mile" || type === "race_pace") return "hard"
-  if (type === "fartlek" || type === "fartlek_rolling" || type === "hills") return "moderate"
+  if (type === "fartlek" || type === "fartlek_rolling" || type === "hills" || type === "power_hike") return "moderate"
   return "easy" // easy, progressive, strides, cross_train
 }
 

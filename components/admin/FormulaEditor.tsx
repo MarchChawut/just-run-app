@@ -1,35 +1,57 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState, useTransition, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { saveFormula, resetFormula } from "@/app/actions/admin"
 import type { FormulaSettings, PaceMultipliers } from "@/types"
 
-const MULTIPLIER_LABELS: Record<keyof PaceMultipliers, string> = {
-  easy: "Easy Run", long: "Long Run", race_pace: "Race Pace", tempo: "Tempo",
-  interval: "Interval", recovery: "Recovery", fartlek: "Fartlek", hills: "Hills",
-  strides: "Strides", progressive: "Progressive Run", pyramid: "Pyramid",
-  drop_set: "Drop Set", broken_mile: "Broken Mile", fartlek_rolling: "Fartlek Rolling",
-  power_hike: "Power Hike",
-}
+const fmtSec = (s: number) =>
+  `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+
+const MULTIPLIER_ROWS: { key: keyof PaceMultipliers; label: string; zone: string }[] = [
+  { key: "easy",           label: "Easy Run",         zone: "Zone 2" },
+  { key: "long",           label: "Long Run",         zone: "Zone 2" },
+  { key: "progressive",    label: "Progressive Run",  zone: "Z2→Z4" },
+  { key: "fartlek_rolling",label: "Fartlek Rolling",  zone: "Z3–Z4" },
+  { key: "fartlek",        label: "Fartlek",          zone: "Z3–Z4" },
+  { key: "race_pace",      label: "Race Pace",        zone: "Zone 4" },
+  { key: "broken_mile",    label: "Broken Mile",      zone: "Zone 4" },
+  { key: "tempo",          label: "Tempo",            zone: "Zone 4 (baseline)" },
+  { key: "hills",          label: "Hills",            zone: "Zone 4–5" },
+  { key: "pyramid",        label: "Pyramid",          zone: "Zone 5" },
+  { key: "drop_set",       label: "Drop Set",         zone: "Zone 5" },
+  { key: "interval",       label: "Interval",         zone: "Zone 5" },
+  { key: "strides",        label: "Strides",          zone: "Short Z5" },
+  { key: "recovery",       label: "Recovery",         zone: "Zone 1" },
+  { key: "power_hike",     label: "Power Hike 🥾",    zone: "Z1–Z2" },
+]
 
 type Props = { targetDistance: string; initialFormula: FormulaSettings; isCustom: boolean }
 
-function NumField({ label, value, onChange, unit, min, max, step = 1 }: {
+function NumInput({ label, value, onChange, unit, hint, min, max, step = 1 }: {
   label: string; value: number; onChange: (v: number) => void
-  unit?: string; min?: number; max?: number; step?: number
+  unit?: string; hint?: string; min?: number; max?: number; step?: number
 }) {
+  const [raw, setRaw] = useState(String(value))
+  useEffect(() => { setRaw(String(value)) }, [value])
+
   return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium" style={{ color: "#888" }}>{label}</label>
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium" style={{ color: "#777" }}>{label}</label>
       <div className="flex items-center gap-2">
-        <input type="number" value={value} min={min} max={max} step={step}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="w-full h-9 rounded-lg px-3 text-sm font-mono"
-          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff" }}
+        <input type="number" value={raw} min={min} max={max} step={step}
+          onChange={(e) => {
+            setRaw(e.target.value)
+            const v = parseFloat(e.target.value)
+            if (!isNaN(v)) onChange(v)
+          }}
+          className="w-full h-9 rounded-xl px-3 text-sm font-mono"
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#e8ff4a" }}
         />
         {unit && <span className="text-xs shrink-0" style={{ color: "#555" }}>{unit}</span>}
       </div>
+      {hint && <p className="text-[11px]" style={{ color: "#444" }}>{hint}</p>}
     </div>
   )
 }
@@ -39,23 +61,59 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
   const [formula, setFormula] = useState<FormulaSettings>(initialFormula)
   const [isPending, startTransition] = useTransition()
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null)
+  const [jsonText, setJsonText] = useState(
+    formula.phasePatterns ? JSON.stringify(formula.phasePatterns, null, 2) : ""
+  )
+  const [jsonError, setJsonError] = useState("")
+  const [dirty, setDirty] = useState(false)
+
+  // Auto-dismiss status after 3 s
+  useEffect(() => {
+    if (!status) return
+    const t = setTimeout(() => setStatus(null), 3000)
+    return () => clearTimeout(t)
+  }, [status])
+
+  const patch = <K extends keyof FormulaSettings>(key: K, val: FormulaSettings[K]) => {
+    setFormula((f) => ({ ...f, [key]: val }))
+    setDirty(true)
+  }
 
   const setMult = (key: keyof PaceMultipliers, val: number) => {
     setFormula((f) => ({ ...f, paceMultipliers: { ...f.paceMultipliers, [key]: val } }))
+    setDirty(true)
   }
 
-  // Example pace preview: given race pace = 6:00/km (360s) baseline
+  // Preview pace from multiplier × effective base pace
   const previewPace = (mult: number) => {
-    const sBase = formula.defaultRacePace + (formula.terrainModifier ?? 0)
-    const sec = Math.max(120, Math.min(1200, Math.round(sBase * mult)))
-    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`
+    const base = formula.defaultRacePace + (formula.terrainModifier ?? 0)
+    return fmtSec(Math.max(120, Math.min(1200, Math.round(base * mult))))
+  }
+
+  const handleJsonChange = (text: string) => {
+    setJsonText(text)
+    setDirty(true)
+    if (!text.trim()) {
+      setFormula((f) => ({ ...f, phasePatterns: undefined }))
+      setJsonError("")
+      return
+    }
+    try {
+      const parsed = JSON.parse(text)
+      setFormula((f) => ({ ...f, phasePatterns: parsed }))
+      setJsonError("")
+    } catch {
+      setJsonError("JSON ไม่ถูกต้อง — ยังบันทึกไม่ได้")
+    }
   }
 
   const handleSave = () => {
+    if (jsonError) { setStatus({ type: "error", msg: jsonError }); return }
     startTransition(async () => {
       const res = await saveFormula(targetDistance, formula)
       if ("success" in res) {
-        setStatus({ type: "success", msg: "บันทึกสำเร็จ" })
+        setStatus({ type: "success", msg: "✓ บันทึกสูตรแล้ว" })
+        setDirty(false)
         router.refresh()
       } else {
         setStatus({ type: "error", msg: res.error ?? "เกิดข้อผิดพลาด" })
@@ -64,76 +122,124 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
   }
 
   const handleReset = () => {
-    if (!confirm("รีเซ็ตกลับ default? สูตรที่ปรับไว้จะหายไป")) return
+    if (!confirm("รีเซ็ตกลับค่า default ทั้งหมด? สูตรที่ปรับไว้จะหายไป")) return
     startTransition(async () => {
       await resetFormula(targetDistance)
       router.push("/admin/formula")
     })
   }
 
+  const sectionStyle = {
+    background: "rgba(255,255,255,0.02)",
+    border: "1px solid rgba(255,255,255,0.07)",
+  }
+
   return (
-    <div className="space-y-8">
-      {/* ─── Volume section ───────────────────────────────────────────────── */}
-      <section className="rounded-xl p-5 space-y-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+    <div className="space-y-6">
+      {/* Back + dirty indicator */}
+      <div className="flex items-center gap-3">
+        <Link href="/admin/formula" className="flex items-center gap-1.5 text-sm transition-colors"
+          style={{ color: "#666" }}>
+          ← รายการสูตรทั้งหมด
+        </Link>
+        {dirty && (
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(232,255,74,0.12)", color: "#e8ff4a" }}>
+            ● มีการแก้ไข
+          </span>
+        )}
+      </div>
+
+      {/* ── Volume ─────────────────────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-4" style={sectionStyle}>
         <h2 className="font-semibold text-white">📊 ปริมาณการซ้อม (km/week)</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <NumField label="Base km/week" value={formula.baseKmPerWeek} onChange={(v) => setFormula((f) => ({ ...f, baseKmPerWeek: v }))} unit="km" min={5} max={200} />
-          <NumField label="Peak km/week" value={formula.peakKmPerWeek} onChange={(v) => setFormula((f) => ({ ...f, peakKmPerWeek: v }))} unit="km" min={10} max={300} />
-          <NumField label="Long run max" value={formula.longRunMax} onChange={(v) => setFormula((f) => ({ ...f, longRunMax: v }))} unit="km" min={3} max={100} />
+        <div className="grid grid-cols-3 gap-4">
+          <NumInput label="Base km/week" value={formula.baseKmPerWeek}
+            onChange={(v) => patch("baseKmPerWeek", v)} unit="km" min={5} max={200} />
+          <NumInput label="Peak km/week" value={formula.peakKmPerWeek}
+            onChange={(v) => patch("peakKmPerWeek", v)} unit="km" min={10} max={300} />
+          <NumInput label="Long run max" value={formula.longRunMax}
+            onChange={(v) => patch("longRunMax", v)} unit="km" min={3} max={100} />
         </div>
       </section>
 
-      {/* ─── Pace calibration ─────────────────────────────────────────────── */}
-      <section className="rounded-xl p-5 space-y-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-        <h2 className="font-semibold text-white">⏱️ Pace Calibration</h2>
+      {/* ── Pace Calibration ───────────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-4" style={sectionStyle}>
+        <div>
+          <h2 className="font-semibold text-white">⏱️ Pace Calibration</h2>
+          <p className="text-xs mt-0.5" style={{ color: "#555" }}>เพซพื้นฐานเมื่อผู้ใช้ไม่มีข้อมูล PR</p>
+        </div>
         <div className="grid grid-cols-2 gap-4">
-          <NumField label="Default race pace (ไม่มี PR)" value={formula.defaultRacePace}
-            onChange={(v) => setFormula((f) => ({ ...f, defaultRacePace: v }))} unit="sec/km" min={120} max={1200} />
-          <NumField label="Terrain modifier" value={formula.terrainModifier}
-            onChange={(v) => setFormula((f) => ({ ...f, terrainModifier: v }))} unit="+sec/km" min={0} max={120} />
+          <NumInput
+            label="Default race pace"
+            value={formula.defaultRacePace}
+            onChange={(v) => patch("defaultRacePace", v)}
+            unit="วิ/km"
+            hint={`= ${fmtSec(formula.defaultRacePace)}/km`}
+            min={120} max={1200}
+          />
+          <NumInput
+            label="Terrain modifier"
+            value={formula.terrainModifier}
+            onChange={(v) => patch("terrainModifier", v)}
+            unit="+วิ/km"
+            hint={formula.terrainModifier > 0
+              ? `Effective base: ${fmtSec(formula.defaultRacePace + formula.terrainModifier)}/km`
+              : "0 = ไม่มี terrain penalty"}
+            min={0} max={120}
+          />
         </div>
-        <p className="text-xs" style={{ color: "#555" }}>
-          Default race pace: {Math.floor(formula.defaultRacePace / 60)}:{String(formula.defaultRacePace % 60).padStart(2, "0")}/km
-          {formula.terrainModifier > 0 && ` + ${formula.terrainModifier}s terrain = ${Math.floor((formula.defaultRacePace + formula.terrainModifier) / 60)}:${String((formula.defaultRacePace + formula.terrainModifier) % 60).padStart(2, "0")}/km effective`}
-        </p>
       </section>
 
-      {/* ─── Pace multipliers ─────────────────────────────────────────────── */}
-      <section className="rounded-xl p-5 space-y-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      {/* ── Pace Multipliers ──────────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-4" style={sectionStyle}>
         <div>
           <h2 className="font-semibold text-white">🎛️ Pace Multipliers</h2>
           <p className="text-xs mt-0.5" style={{ color: "#555" }}>
-            ตัวคูณจาก tempo baseline (×1.00) — ตัวอย่าง preview ใช้ default race pace ด้านบน
+            ทุก pace คำนวณจาก tempo (×1.00) — ค่ายิ่งมาก ยิ่งช้า
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-2">
+          <table className="w-full text-sm min-w-[480px]">
             <thead>
-              <tr className="text-xs" style={{ color: "#555" }}>
-                <th className="text-left py-2 pr-4">Workout Type</th>
-                <th className="text-center py-2 pr-4">Multiplier</th>
-                <th className="text-center py-2 pr-4">Pace Preview</th>
-                <th className="text-left py-2">ความหมาย</th>
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <th className="text-left pb-2 pr-4 text-xs font-medium" style={{ color: "#555" }}>Workout</th>
+                <th className="text-left pb-2 pr-4 text-xs font-medium" style={{ color: "#555" }}>Zone</th>
+                <th className="text-center pb-2 pr-4 text-xs font-medium" style={{ color: "#555" }}>ตัวคูณ</th>
+                <th className="text-center pb-2 pr-4 text-xs font-medium" style={{ color: "#4af0ff" }}>ตัวอย่างเพซ</th>
+                <th className="text-left pb-2 text-xs font-medium" style={{ color: "#555" }}>vs Tempo</th>
               </tr>
             </thead>
             <tbody>
-              {(Object.keys(MULTIPLIER_LABELS) as (keyof PaceMultipliers)[]).map((key) => {
+              {MULTIPLIER_ROWS.map(({ key, label, zone }) => {
                 const val = formula.paceMultipliers[key]
+                const isBaseline = key === "tempo"
                 return (
-                  <tr key={key} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                    <td className="py-2 pr-4 font-mono text-xs" style={{ color: "#ccc" }}>{MULTIPLIER_LABELS[key]}</td>
+                  <tr key={key} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                     <td className="py-2 pr-4">
+                      <span className="text-xs font-medium" style={{ color: isBaseline ? "#e8ff4a" : "#ccc" }}>
+                        {label}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4 text-xs" style={{ color: "#444" }}>{zone}</td>
+                    <td className="py-2 pr-4 text-center">
                       <input type="number" value={val} min={0.5} max={3.0} step={0.01}
-                        onChange={(e) => setMult(key, parseFloat(e.target.value) || 1)}
-                        className="w-20 h-8 rounded px-2 text-xs font-mono text-center"
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value)
+                          if (!isNaN(v)) setMult(key, v)
+                        }}
+                        className="w-20 h-8 rounded-lg px-2 text-xs font-mono text-center"
                         style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#e8ff4a" }}
                       />
                     </td>
-                    <td className="py-2 pr-4 font-mono text-xs text-center" style={{ color: "#4af0ff" }}>
+                    <td className="py-2 pr-4 text-center font-mono text-xs" style={{ color: "#4af0ff" }}>
                       {previewPace(val)}/km
                     </td>
-                    <td className="py-2 text-xs" style={{ color: "#555" }}>
-                      {val < 1 ? `เร็วกว่า tempo ${((1 - val) * 100).toFixed(0)}%` : val === 1 ? "= tempo baseline" : `ช้ากว่า tempo ${((val - 1) * 100).toFixed(0)}%`}
+                    <td className="py-2 text-xs" style={{ color: "#444" }}>
+                      {isBaseline ? "baseline" : val < 1
+                        ? `เร็วกว่า ${((1-val)*100).toFixed(0)}%`
+                        : val === 1 ? "เท่ากัน"
+                        : `ช้ากว่า ${((val-1)*100).toFixed(0)}%`
+                      }
                     </td>
                   </tr>
                 )
@@ -143,49 +249,61 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
         </div>
       </section>
 
-      {/* ─── Phase patterns (JSON) ─────────────────────────────────────────── */}
-      <section className="rounded-xl p-5 space-y-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      {/* ── Phase Patterns ────────────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-3" style={sectionStyle}>
         <div>
-          <h2 className="font-semibold text-white">🔄 Phase Patterns (optional)</h2>
+          <h2 className="font-semibold text-white">🔄 Phase Patterns <span className="text-xs font-normal" style={{ color: "#555" }}>(optional)</span></h2>
           <p className="text-xs mt-0.5" style={{ color: "#555" }}>
-            JSON object กำหนด workout type ต่อ phase+จำนวนวัน — ปล่อยว่างเพื่อใช้ pattern default
+            JSON กำหนด workout types ต่อ phase + จำนวนวัน — ว่าง = ใช้ default pattern
           </p>
         </div>
         <textarea
-          rows={8}
-          value={formula.phasePatterns ? JSON.stringify(formula.phasePatterns, null, 2) : ""}
-          onChange={(e) => {
-            if (!e.target.value.trim()) {
-              setFormula((f) => ({ ...f, phasePatterns: undefined }))
-              return
-            }
-            try {
-              const parsed = JSON.parse(e.target.value)
-              setFormula((f) => ({ ...f, phasePatterns: parsed }))
-            } catch { /* invalid JSON while typing — ignore */ }
+          rows={10}
+          value={jsonText}
+          onChange={(e) => handleJsonChange(e.target.value)}
+          placeholder={`{\n  "base":  { "3": ["easy","hills"],             "4": ["easy","hills","progressive"] },\n  "build": { "3": ["hills","power_hike"],        "4": ["hills","power_hike","fartlek_rolling"] },\n  "peak":  { "3": ["hills","race_pace"],          "4": ["hills","race_pace","power_hike"] },\n  "taper": { "3": ["easy","race_pace"],           "4": ["easy","race_pace","easy"] }\n}`}
+          className="w-full rounded-xl px-4 py-3 text-xs font-mono resize-y"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: `1px solid ${jsonError ? "#ff4a4a" : "rgba(255,255,255,0.08)"}`,
+            color: jsonError ? "#ff8888" : "#bbb",
+            minHeight: "180px",
           }}
-          placeholder={`{\n  "base": { "3": ["easy", "hills"], "4": ["easy", "hills", "progressive"] },\n  "build": { "3": ["hills", "power_hike"], "4": ["hills", "power_hike", "fartlek_rolling"] },\n  "peak": { "3": ["hills", "race_pace"], "4": ["hills", "race_pace", "power_hike"] },\n  "taper": { "3": ["easy", "race_pace"], "4": ["easy", "race_pace", "easy"] }\n}`}
-          className="w-full rounded-lg px-3 py-2 text-xs font-mono resize-y"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#ccc", minHeight: "160px" }}
         />
+        {jsonError && (
+          <p className="text-xs flex items-center gap-1.5" style={{ color: "#ff4a4a" }}>
+            <span>⚠</span> {jsonError}
+          </p>
+        )}
+        {!jsonText.trim() && (
+          <p className="text-xs" style={{ color: "#444" }}>
+            ✓ ใช้ pattern default — trail ใช้ hill-heavy patterns, road ใช้ sports science patterns
+          </p>
+        )}
       </section>
 
-      {/* ─── Actions ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={handleSave} disabled={isPending}
-          className="px-6 py-2.5 rounded-xl text-sm font-semibold"
-          style={{ background: "#e8ff4a", color: "#0a0a0f", opacity: isPending ? 0.6 : 1 }}>
-          {isPending ? "กำลังบันทึก..." : "💾 บันทึกสูตร"}
+      {/* ── Save actions ──────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap pb-8">
+        <button onClick={handleSave} disabled={isPending || !!jsonError}
+          className="px-7 py-3 rounded-xl text-sm font-bold transition-all"
+          style={{
+            background: dirty ? "#e8ff4a" : "rgba(232,255,74,0.4)",
+            color: "#0a0a0f",
+            opacity: isPending ? 0.6 : 1,
+          }}>
+          {isPending ? "⏳ กำลังบันทึก..." : "💾 บันทึกสูตร"}
         </button>
+
         {isCustom && (
           <button onClick={handleReset} disabled={isPending}
-            className="px-4 py-2.5 rounded-xl text-sm"
-            style={{ background: "rgba(255,74,74,0.12)", color: "#ff4a4a", border: "1px solid rgba(255,74,74,0.25)" }}>
+            className="px-4 py-3 rounded-xl text-sm transition-all"
+            style={{ background: "rgba(255,74,74,0.08)", color: "#ff6666", border: "1px solid rgba(255,74,74,0.2)" }}>
             ↩ รีเซ็ต default
           </button>
         )}
+
         {status && (
-          <span className="text-sm" style={{ color: status.type === "success" ? "#4aff8c" : "#ff4a4a" }}>
+          <span className="text-sm font-medium" style={{ color: status.type === "success" ? "#4aff8c" : "#ff4a4a" }}>
             {status.msg}
           </span>
         )}

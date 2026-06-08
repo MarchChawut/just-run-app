@@ -23,7 +23,12 @@ export async function getFormula(targetDistance: string) {
   const check = await checkAdmin()
   if ("error" in check) return check
 
-  const row = await prisma.formulaConfig.findUnique({ where: { targetDistance } })
+  let row = null
+  try {
+    row = await prisma.formulaConfig.findUnique({ where: { targetDistance } })
+  } catch {
+    // table not created yet — fall through to defaults
+  }
   const defaults = getFormulaDefault(targetDistance)
   if (!row) return { success: true, formula: defaults, isCustom: false }
 

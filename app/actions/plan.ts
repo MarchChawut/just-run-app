@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { createPlanWizardSchema, TARGET_DISTANCE_VALUES, type CreatePlanWizardInput } from "@/lib/validations"
 import { generatePlan, DISTANCE_CONFIGS } from "@/lib/trainingEngine"
 import { loadFormula } from "@/lib/formulaLoader"
+import { logActivity } from "@/lib/activityLogger"
 import type { TargetDistance } from "@/types"
 
 export async function createPlanFromWizard(input: CreatePlanWizardInput) {
@@ -112,6 +113,8 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
     },
   }).catch(() => null) // best-effort
 
+  void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "plan_created", detail: { planId: plan.id, name: data.name, targetDistance: data.targetDistance, trainingWeeks } })
+
   revalidatePath("/plan")
   revalidatePath("/dashboard")
   return { success: true, planId: plan.id }
@@ -137,6 +140,8 @@ export async function updatePlan(planId: string, data: { name?: string; isActive
     return { error: "ไม่สามารถอัปเดตแผนได้ — กรุณาลองใหม่" }
   }
 
+  void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "plan_updated", detail: { planId, ...updateData } })
+
   revalidatePath("/plan")
   revalidatePath("/dashboard")
   revalidatePath(`/plan/${planId}`)
@@ -158,6 +163,8 @@ export async function deletePlan(planId: string) {
   } catch {
     return { error: "ไม่สามารถลบแผนได้ — กรุณาลองใหม่" }
   }
+
+  void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "plan_deleted", detail: { planId } })
 
   revalidatePath("/plan")
   revalidatePath("/dashboard")

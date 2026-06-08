@@ -2,6 +2,7 @@ import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
+import { logActivity } from "@/lib/activityLogger"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -20,5 +21,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: {
     signIn: "/login",
     error: "/login",
+  },
+  events: {
+    createUser: async ({ user }) => {
+      void logActivity({ userId: user.id, userEmail: user.email ?? undefined, action: "user_signed_up", detail: { name: user.name } })
+    },
   },
 })

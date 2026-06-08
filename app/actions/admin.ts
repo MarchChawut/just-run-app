@@ -5,6 +5,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { isAdmin } from "@/lib/auth-utils"
 import { getFormulaDefault } from "@/lib/formulaDefaults"
+import { logActivity } from "@/lib/activityLogger"
 import type { FormulaSettings } from "@/types"
 import { z } from "zod"
 
@@ -33,6 +34,10 @@ export async function getFormula(targetDistance: string) {
       ...defaults.paceMultipliers,
       ...((row.config as FormulaSettings).paceMultipliers ?? {}),
     },
+    algorithmParams: {
+      ...defaults.algorithmParams,
+      ...((row.config as FormulaSettings).algorithmParams ?? {}),
+    } as FormulaSettings["algorithmParams"],
   }
   return { success: true, formula: merged, isCustom: true, updatedAt: row.updatedAt, updatedBy: row.updatedBy }
 }
@@ -47,6 +52,7 @@ export async function saveFormula(targetDistance: string, formula: FormulaSettin
       create: { targetDistance, config: formula as object, updatedBy: check.session.user?.email },
       update: { config: formula as object, updatedBy: check.session.user?.email },
     })
+    void logActivity({ userEmail: check.session.user?.email ?? undefined, action: "formula_updated", detail: { targetDistance } })
     revalidatePath("/admin/formula")
     return { success: true }
   } catch {
@@ -60,6 +66,7 @@ export async function resetFormula(targetDistance: string) {
 
   try {
     await prisma.formulaConfig.deleteMany({ where: { targetDistance } })
+    void logActivity({ userEmail: check.session.user?.email ?? undefined, action: "formula_reset", detail: { targetDistance } })
     revalidatePath("/admin/formula")
     return { success: true }
   } catch {
@@ -96,8 +103,10 @@ export async function saveMealItem(id: string | null, data: z.infer<typeof mealS
   try {
     if (id) {
       await prisma.mealItem.update({ where: { id }, data: parsed.data })
+      void logActivity({ userEmail: check.session.user?.email ?? undefined, action: "meal_updated", detail: { id, name: parsed.data.name } })
     } else {
       await prisma.mealItem.create({ data: parsed.data })
+      void logActivity({ userEmail: check.session.user?.email ?? undefined, action: "meal_created", detail: { name: parsed.data.name, category: parsed.data.category } })
     }
     revalidatePath("/admin/meals")
     return { success: true }
@@ -112,6 +121,7 @@ export async function deleteMealItem(id: string) {
 
   try {
     await prisma.mealItem.delete({ where: { id } })
+    void logActivity({ userEmail: check.session.user?.email ?? undefined, action: "meal_deleted", detail: { id } })
     revalidatePath("/admin/meals")
     return { success: true }
   } catch {
@@ -134,11 +144,63 @@ export async function getAdminStats() {
   const check = await checkAdmin()
   if ("error" in check) return check
 
-  const [userCount, planCount, formulaCount, mealCount] = await Promise.all([
+  const [userCount, planCount, activePlanCount, formulaCount, mealCount, recentLogs] = await Promise.all([
     prisma.user.count(),
     prisma.trainingPlan.count(),
+    prisma.trainingPlan.count({ where: { isActive: true } }),
     prisma.formulaConfig.count(),
     prisma.mealItem.count({ where: { isActive: true } }),
+    prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
   ])
-  return { success: true, userCount, planCount, formulaCount, mealCount }
+  return { success: true, userCount, planCount, activePlanCount, formulaCount, mealCount, recentLogs }
+}
+
+// ─── User management ───────────────────────────────────────────────────────
+
+export async function getUsers(search?: string) {
+  const check = await checkAdmin()
+  if ("error" in check) return check
+
+  const users = await prisma.user.findMany({
+    where: search ? {
+      OR: [
+        { name: { contains: search } },
+        { email: { contains: search } },
+      ],
+    } : undefined,
+    include: {
+      plans: { select: { id: true, isActive: true, targetDistance: true, createdAt: true, name: true } },
+      profile: { select: { targetDistance: true, intensity: true, age: true } },
+      completions: { select: { id: true } },
+      sessions: { select: { expires: true }, orderBy: { expires: "desc" }, take: 1 },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  })
+  return { success: true, users }
+}
+
+// ─── Activity logs ─────────────────────────────────────────────────────────
+
+export async function getLogs(opts?: { action?: string; userId?: string; cursor?: string; limit?: number }) {
+  const check = await checkAdmin()
+  if ("error" in check) return check
+
+  const limit = opts?.limit ?? 50
+  const logs = await prisma.activityLog.findMany({
+    where: {
+      ...(opts?.action ? { action: opts.action } : {}),
+      ...(opts?.userId ? { userId: opts.userId } : {}),
+      ...(opts?.cursor ? { createdAt: { lt: new Date(opts.cursor) } } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit + 1,
+  })
+
+  const hasMore = logs.length > limit
+  return {
+    success: true,
+    logs: hasMore ? logs.slice(0, limit) : logs,
+    nextCursor: hasMore ? logs[limit - 1].createdAt.toISOString() : null,
+  }
 }

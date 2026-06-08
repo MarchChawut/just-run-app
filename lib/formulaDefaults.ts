@@ -1,4 +1,15 @@
-import type { FormulaSettings, PaceMultipliers, TargetDistance } from "@/types"
+import type { FormulaSettings, PaceMultipliers, AlgorithmParams, TargetDistance } from "@/types"
+
+export const DEFAULT_ALGORITHM_PARAMS: AlgorithmParams = {
+  phaseBoundaryBase: 0.40,
+  phaseBoundaryBuild: 0.75,
+  phaseBoundaryPeak: 0.90,
+  deloadFactor: 0.80,
+  peakOscillation: 0.85,
+  taperFactor: 0.75,
+  recoveryWeekInterval: 4,
+  longRunRatioBase: 0.38,
+}
 
 export const DEFAULT_MULTIPLIERS: PaceMultipliers = {
   easy: 1.25, long: 1.15, race_pace: 1.04, tempo: 1.00,

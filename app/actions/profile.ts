@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { logActivity } from "@/lib/activityLogger"
 import { z } from "zod"
 
 const profileSchema = z.object({
@@ -46,6 +47,8 @@ export async function upsertProfile(formData: FormData) {
     create: { userId: session.user.id, ...data },
     update: data,
   })
+
+  void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "profile_updated", detail: { targetDistance: parsed.data.targetDistance, intensity: parsed.data.intensity, terrainType: parsed.data.terrainType } })
 
   revalidatePath("/profile")
   revalidatePath("/dashboard")

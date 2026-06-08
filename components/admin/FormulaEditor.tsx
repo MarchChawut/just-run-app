@@ -3,8 +3,10 @@
 import { useState, useTransition, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { saveFormula, resetFormula } from "@/app/actions/admin"
+import { saveFormula, resetFormula, getFormula } from "@/app/actions/admin"
+import { PhasePatternEditor } from "@/components/admin/PhasePatternEditor"
 import type { FormulaSettings, PaceMultipliers } from "@/types"
+import { getFormulaDefault } from "@/lib/formulaDefaults"
 
 const fmtSec = (s: number) =>
   `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
@@ -61,11 +63,8 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
   const [formula, setFormula] = useState<FormulaSettings>(initialFormula)
   const [isPending, startTransition] = useTransition()
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null)
-  const [jsonText, setJsonText] = useState(
-    formula.phasePatterns ? JSON.stringify(formula.phasePatterns, null, 2) : ""
-  )
-  const [jsonError, setJsonError] = useState("")
   const [dirty, setDirty] = useState(false)
+  const defaults = getFormulaDefault(targetDistance)
 
   // Auto-dismiss status after 3 s
   useEffect(() => {
@@ -90,25 +89,7 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
     return fmtSec(Math.max(120, Math.min(1200, Math.round(base * mult))))
   }
 
-  const handleJsonChange = (text: string) => {
-    setJsonText(text)
-    setDirty(true)
-    if (!text.trim()) {
-      setFormula((f) => ({ ...f, phasePatterns: undefined }))
-      setJsonError("")
-      return
-    }
-    try {
-      const parsed = JSON.parse(text)
-      setFormula((f) => ({ ...f, phasePatterns: parsed }))
-      setJsonError("")
-    } catch {
-      setJsonError("JSON ไม่ถูกต้อง — ยังบันทึกไม่ได้")
-    }
-  }
-
   const handleSave = () => {
-    if (jsonError) { setStatus({ type: "error", msg: jsonError }); return }
     startTransition(async () => {
       const res = await saveFormula(targetDistance, formula)
       if ("success" in res) {
@@ -249,42 +230,67 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
         </div>
       </section>
 
-      {/* ── Phase Patterns ────────────────────────────────────────── */}
-      <section className="rounded-2xl p-6 space-y-3" style={sectionStyle}>
+      {/* ── Algorithm Parameters ──────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-4" style={sectionStyle}>
         <div>
-          <h2 className="font-semibold text-white">🔄 Phase Patterns <span className="text-xs font-normal" style={{ color: "#555" }}>(optional)</span></h2>
+          <h2 className="font-semibold text-white">🧮 Algorithm Parameters</h2>
           <p className="text-xs mt-0.5" style={{ color: "#555" }}>
-            JSON กำหนด workout types ต่อ phase + จำนวนวัน — ว่าง = ใช้ default pattern
+            ควบคุมโครงสร้าง periodization — phase boundaries, deload intensity, taper rate
           </p>
         </div>
-        <textarea
-          rows={10}
-          value={jsonText}
-          onChange={(e) => handleJsonChange(e.target.value)}
-          placeholder={`{\n  "base":  { "3": ["easy","hills"],             "4": ["easy","hills","progressive"] },\n  "build": { "3": ["hills","power_hike"],        "4": ["hills","power_hike","fartlek_rolling"] },\n  "peak":  { "3": ["hills","race_pace"],          "4": ["hills","race_pace","power_hike"] },\n  "taper": { "3": ["easy","race_pace"],           "4": ["easy","race_pace","easy"] }\n}`}
-          className="w-full rounded-xl px-4 py-3 text-xs font-mono resize-y"
-          style={{
-            background: "rgba(255,255,255,0.04)",
-            border: `1px solid ${jsonError ? "#ff4a4a" : "rgba(255,255,255,0.08)"}`,
-            color: jsonError ? "#ff8888" : "#bbb",
-            minHeight: "180px",
-          }}
+        {(() => {
+          const ap = formula.algorithmParams ?? defaults.algorithmParams ?? {
+            phaseBoundaryBase: 0.40, phaseBoundaryBuild: 0.75, phaseBoundaryPeak: 0.90,
+            deloadFactor: 0.80, peakOscillation: 0.85, taperFactor: 0.75,
+            recoveryWeekInterval: 4, longRunRatioBase: 0.38,
+          }
+          const setAp = (key: string, val: number) => {
+            patch("algorithmParams", { ...ap, [key]: val })
+          }
+          const params: { key: string; label: string; hint: string; min: number; max: number; step: number }[] = [
+            { key: "phaseBoundaryBase",  label: "Base phase end (%)",  hint: "สัปดาห์ที่กี่ % ของโปรแกรมที่ Base สิ้นสุด — default 40%",  min: 0.1, max: 0.6, step: 0.05 },
+            { key: "phaseBoundaryBuild", label: "Build phase end (%)", hint: "% สัปดาห์ที่ Build สิ้นสุด — default 75%", min: 0.4, max: 0.85, step: 0.05 },
+            { key: "phaseBoundaryPeak",  label: "Peak phase end (%)",  hint: "% สัปดาห์ที่ Peak สิ้นสุด — default 90%",  min: 0.6, max: 0.95, step: 0.05 },
+            { key: "deloadFactor",       label: "Deload factor",       hint: "ลด km กี่เท่าในสัปดาห์ deload — default ×0.80 (ลด 20%)", min: 0.5, max: 0.95, step: 0.05 },
+            { key: "peakOscillation",    label: "Peak oscillation",    hint: "hard/easy สลับใน peak — default ×0.85 (สัปดาห์ easy ลด 15%)", min: 0.6, max: 0.99, step: 0.05 },
+            { key: "taperFactor",        label: "Taper decay factor",  hint: "Exponential decay ต่อสัปดาห์ใน taper — default 0.75 (ลด 25%/สัปดาห์)", min: 0.4, max: 0.9, step: 0.05 },
+            { key: "recoveryWeekInterval", label: "Recovery interval (weeks)", hint: "Deload ทุกกี่สัปดาห์ใน build — default ทุก 4 สัปดาห์", min: 2, max: 8, step: 1 },
+            { key: "longRunRatioBase",   label: "Long run ratio (4 days)", hint: "% ของ weekly km สำหรับ long run เมื่อซ้อม 4 วัน/สัปดาห์ — default 38%", min: 0.2, max: 0.55, step: 0.02 },
+          ]
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {params.map(({ key, label, hint, min, max, step }) => (
+                <NumInput key={key} label={label} value={(ap as Record<string, number>)[key] ?? 0}
+                  onChange={(v) => setAp(key, v)} hint={hint} min={min} max={max} step={step} />
+              ))}
+            </div>
+          )
+        })()}
+      </section>
+
+      {/* ── Phase Patterns ────────────────────────────────────────── */}
+      <section className="rounded-2xl p-6 space-y-4" style={sectionStyle}>
+        <div>
+          <h2 className="font-semibold text-white">🔄 Phase Patterns</h2>
+          <p className="text-xs mt-0.5" style={{ color: "#555" }}>
+            กำหนด workout type ที่ assign ให้แต่ละวันในแต่ละ phase (ไม่รวม long run day)
+          </p>
+        </div>
+        <PhasePatternEditor
+          value={formula.phasePatterns}
+          onChange={(v) => { patch("phasePatterns", v) }}
+          defaultPatterns={defaults.phasePatterns ?? {
+            base:  { 3: ["easy","progressive"], 4: ["easy","progressive","easy"], 5: ["easy","progressive","easy","fartlek_rolling"], 6: ["easy","progressive","easy","fartlek_rolling","easy"] },
+            build: { 3: ["easy","fartlek_rolling"], 4: ["easy","pyramid","fartlek_rolling"], 5: ["easy","pyramid","easy","drop_set"], 6: ["easy","pyramid","easy","drop_set","fartlek_rolling"] },
+            peak:  { 3: ["easy","broken_mile"], 4: ["easy","broken_mile","drop_set"], 5: ["easy","drop_set","easy","broken_mile"], 6: ["easy","drop_set","easy","broken_mile","race_pace"] },
+            taper: { 3: ["easy","race_pace"], 4: ["easy","race_pace","progressive"], 5: ["easy","race_pace","easy","progressive"], 6: ["easy","race_pace","easy","progressive","easy"] },
+          } as import("@/types").PhasePatternMap}
         />
-        {jsonError && (
-          <p className="text-xs flex items-center gap-1.5" style={{ color: "#ff4a4a" }}>
-            <span>⚠</span> {jsonError}
-          </p>
-        )}
-        {!jsonText.trim() && (
-          <p className="text-xs" style={{ color: "#444" }}>
-            ✓ ใช้ pattern default — trail ใช้ hill-heavy patterns, road ใช้ sports science patterns
-          </p>
-        )}
       </section>
 
       {/* ── Save actions ──────────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap pb-8">
-        <button onClick={handleSave} disabled={isPending || !!jsonError}
+        <button onClick={handleSave} disabled={isPending}
           className="px-7 py-3 rounded-xl text-sm font-bold transition-all"
           style={{
             background: dirty ? "#e8ff4a" : "rgba(232,255,74,0.4)",

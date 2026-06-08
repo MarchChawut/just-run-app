@@ -8,7 +8,7 @@ import type {
   PlanGenerationInput,
 } from "@/types"
 import { calcHRZones, type HRZones } from "@/lib/hrZones"
-import { DEFAULT_MULTIPLIERS } from "@/lib/formulaDefaults"
+import { DEFAULT_MULTIPLIERS, DEFAULT_ALGORITHM_PARAMS } from "@/lib/formulaDefaults"
 
 // ─── Distance configurations ───────────────────────────────────────────────
 export type DistanceConfig = {
@@ -275,11 +275,14 @@ export function generateWeeklyKm(input: PlanGenerationInput): number[] {
   const baseKm = input.formula?.baseKmPerWeek ?? config.baseKmPerWeek
   const peakKm = input.formula?.peakKmPerWeek ?? config.peakKmPerWeek
   const intensityMod = ({ gentle: 0.8, normal: 1, challenging: 1.1, elite: 1.2 } as Record<string, number>)[input.intensity]
+
+  // Algorithm params — formula override first, then defaults
+  const ap = { ...DEFAULT_ALGORITHM_PARAMS, ...(input.formula?.algorithmParams ?? {}) }
   const weeks: number[] = []
 
-  const baseEnd = Math.floor(n * 0.4)
-  const buildEnd = Math.floor(n * 0.75)
-  const peakEnd = Math.floor(n * 0.9)
+  const baseEnd = Math.floor(n * ap.phaseBoundaryBase)
+  const buildEnd = Math.floor(n * ap.phaseBoundaryBuild)
+  const peakEnd = Math.floor(n * ap.phaseBoundaryPeak)
 
   for (let i = 0; i < n; i++) {
     let km = 0
@@ -289,12 +292,12 @@ export function generateWeeklyKm(input: PlanGenerationInput): number[] {
     } else if (i < buildEnd) {
       const ratio = (i - baseEnd) / (buildEnd - baseEnd)
       km = peakKm * 0.7 + peakKm * 0.3 * ratio
-      if ((i - baseEnd) % 3 === 2) km *= 0.8
+      if ((i - baseEnd) % ap.recoveryWeekInterval === ap.recoveryWeekInterval - 1) km *= ap.deloadFactor
     } else if (i < peakEnd) {
       km = peakKm
-      if (i % 2 === 1) km *= 0.85
+      if (i % 2 === 1) km *= ap.peakOscillation
     } else {
-      km = peakKm * Math.pow(0.75, i - peakEnd + 1)
+      km = peakKm * Math.pow(ap.taperFactor, i - peakEnd + 1)
     }
     weeks.push(Math.max(5, Math.round(km * intensityMod)))
   }
@@ -315,9 +318,11 @@ export function assignDaySlots(
   phase: TrainingPhase,
   targetDistance?: TargetDistance,
   formulaPatterns?: import("@/types").PhasePatternMap,
+  algorithmParams?: import("@/types").AlgorithmParams,
 ): (DaySlot | null)[] {
+  const ap = { ...DEFAULT_ALGORITHM_PARAMS, ...(algorithmParams ?? {}) }
   const isRecoveryWeek =
-    (weekNum % 4 === 0 && phase === "build") || weekNum >= totalWeeks - 2
+    (weekNum % ap.recoveryWeekInterval === 0 && phase === "build") || weekNum >= totalWeeks - 2
 
   // Phase-specific patterns (sports science: Runner's Rosetta Stone)
   const days = Math.min(6, Math.max(3, daysPerWeek))
@@ -387,10 +392,11 @@ export function assignDaySlots(
     "race_pace", "fartlek_rolling", "hills",
   ])
 
+  const base = ap.longRunRatioBase  // configurable base (default 0.38 for 4 days/week)
   const longRunRatio =
-    daysPerWeek <= 3 ? 0.45 :
-    daysPerWeek === 4 ? 0.38 :
-    daysPerWeek === 5 ? 0.30 : 0.27
+    daysPerWeek <= 3 ? Math.min(0.50, base + 0.07) :
+    daysPerWeek === 4 ? base :
+    daysPerWeek === 5 ? Math.max(0.22, base - 0.08) : Math.max(0.20, base - 0.11)
   const otherRatio = 1 - longRunRatio
 
   const otherDays = trainingDays.filter((d) => d !== longRunDay)
@@ -470,7 +476,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
     const daySlots = assignDaySlots(
       trainingDays, longRunDay, input.daysPerWeek,
       weekNum, input.trainingWeeks, phase, input.targetDistance,
-      input.formula?.phasePatterns
+      input.formula?.phasePatterns, input.formula?.algorithmParams
     )
 
     const days: GeneratedDay[] = daySlots.map((slot) => {

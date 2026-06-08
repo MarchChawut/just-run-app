@@ -160,6 +160,17 @@ export type PhasePatternMap = {
   taper: Record<string, string[]>
 }
 
+export type AlgorithmParams = {
+  phaseBoundaryBase: number     // 0.40 — fraction of total weeks where base ends
+  phaseBoundaryBuild: number    // 0.75 — fraction where build ends
+  phaseBoundaryPeak: number     // 0.90 — fraction where peak ends
+  deloadFactor: number          // 0.80 — km multiplier on deload weeks in build
+  peakOscillation: number       // 0.85 — km multiplier on easy weeks in peak
+  taperFactor: number           // 0.75 — exponential decay per taper week
+  recoveryWeekInterval: number  // 4 — deload every N weeks in build phase
+  longRunRatioBase: number      // 0.38 — fraction of weekly km for long run (4 days/week)
+}
+
 export type FormulaSettings = {
   defaultRacePace: number    // sec/km when no PR — e.g. 450 for 5K
   terrainModifier: number    // extra sec/km for terrain — 0 road, 30 trail
@@ -168,7 +179,22 @@ export type FormulaSettings = {
   longRunMax: number
   paceMultipliers: PaceMultipliers
   phasePatterns?: PhasePatternMap  // null = use built-in patterns
+  algorithmParams?: AlgorithmParams
 }
+
+// ─── Activity logging ──────────────────────────────────────────────────────
+export type ActivityAction =
+  | "user_signed_up"
+  | "plan_created"
+  | "plan_updated"
+  | "plan_deleted"
+  | "completion_saved"
+  | "profile_updated"
+  | "formula_updated"
+  | "formula_reset"
+  | "meal_created"
+  | "meal_updated"
+  | "meal_deleted"
 
 // ─── Engine input ──────────────────────────────────────────────────────────
 export type PlanGenerationInput = {

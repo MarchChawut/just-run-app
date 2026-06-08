@@ -4,8 +4,10 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 
 const NAV = [
-  { href: "/admin/formula", label: "🔢 สูตรโปรแกรม" },
-  { href: "/admin/meals",   label: "🍱 เมนูอาหาร" },
+  { href: "/admin/formula", label: "🔢 สูตร" },
+  { href: "/admin/meals",   label: "🍱 เมนู" },
+  { href: "/admin/users",   label: "👥 ผู้ใช้" },
+  { href: "/admin/logs",    label: "📋 Logs" },
 ]
 
 export function AdminNav() {

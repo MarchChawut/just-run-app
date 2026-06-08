@@ -159,3 +159,16 @@ model MealItem {
 
   @@index([category, slot])
 }
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?  // null for admin-only actions
+  userEmail String?  // denormalized for fast display
+  action    String   // "plan_created" | "completion_saved" | "formula_updated" | etc.
+  detail    Json?    // extra context: planId, targetDistance, completion%, etc.
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+}

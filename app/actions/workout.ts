@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { logActivity } from "@/lib/activityLogger"
 import { z } from "zod"
 
 const completionSchema = z.object({
@@ -40,6 +41,8 @@ export async function saveCompletion(input: {
     create: { userId: session.user.id, planId, weekNumber, dayIndex, completion, note },
     update: { completion, note },
   })
+
+  void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "completion_saved", detail: { planId, weekNumber, dayIndex, completion } })
 
   revalidatePath(`/plan/${planId}`)
   return { success: true }

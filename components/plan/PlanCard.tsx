@@ -13,10 +13,10 @@ type PlanCardProps = {
 
 export function PlanCard({ plan }: PlanCardProps) {
   const raceDate = new Date(plan.raceDate)
-  const weeksLeft = Math.max(
-    0,
-    Math.ceil((raceDate.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))
-  )
+  // Server component renders once per request — per-request "now" is intentional.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now()
+  const weeksLeft = Math.max(0, Math.ceil((raceDate.getTime() - nowMs) / (7 * 24 * 60 * 60 * 1000)))
 
   const distLabel =
     TARGET_DISTANCE_LABELS[plan.targetDistance as keyof typeof TARGET_DISTANCE_LABELS] ??

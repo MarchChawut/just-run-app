@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { saveFormula, resetFormula, getFormula } from "@/app/actions/admin"
+import { saveFormula, resetFormula } from "@/app/actions/admin"
 import { PhasePatternEditor } from "@/components/admin/PhasePatternEditor"
 import type { FormulaSettings, PaceMultipliers } from "@/types"
 import { getFormulaDefault } from "@/lib/formulaDefaults"
@@ -36,7 +36,13 @@ function NumInput({ label, value, onChange, unit, hint, min, max, step = 1 }: {
   unit?: string; hint?: string; min?: number; max?: number; step?: number
 }) {
   const [raw, setRaw] = useState(String(value))
-  useEffect(() => { setRaw(String(value)) }, [value])
+  // Sync local edit buffer when the controlled value changes — done during render
+  // (not in an effect) to avoid cascading re-renders.
+  const [prevValue, setPrevValue] = useState(value)
+  if (value !== prevValue) {
+    setPrevValue(value)
+    setRaw(String(value))
+  }
 
   return (
     <div className="space-y-1.5">

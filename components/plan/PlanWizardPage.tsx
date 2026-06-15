@@ -7,11 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createPlanFromWizard } from "@/app/actions/plan"
 import { DISTANCE_CONFIGS, getDefaultTrainingDays, isTrailDistance, normalizeDistance } from "@/lib/trainingEngine"
-import {
-  TARGET_DISTANCE_LABELS,
-  TARGET_DISTANCE_ICONS,
-  PHASE_COLORS,
-} from "@/types"
+import { TARGET_DISTANCE_LABELS } from "@/types"
 import type { TargetDistance, WizardFormState, RunnerProfile } from "@/types"
 
 const DAYS_TH = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
@@ -128,7 +124,6 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
   const handleSubmit = () => {
     setError("")
     if (!form.targetDistance) return
-    const config = DISTANCE_CONFIGS[form.targetDistance]
     const distLabel = TARGET_DISTANCE_LABELS[form.targetDistance]
     const planName = form.name || `แผนซ้อม ${distLabel} ${form.trainingWeeks} สัปดาห์`
 
@@ -553,7 +548,7 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
                   { key: "pr10k" as const, label: "10K", placeholder: "55:00", hint: "MM:SS", format: "MM:SS" as const },
                   { key: "prHalf" as const, label: "ฮาล์ฟ 21.1K", placeholder: "2:05:00", hint: "H:MM:SS", format: "H:MM:SS" as const },
                   { key: "prFull" as const, label: "มาราธอน 42.2K", placeholder: "4:30:00", hint: "H:MM:SS", format: "H:MM:SS" as const },
-                ] as const).map(({ key, label, placeholder, hint, format }) => {
+                ] as const).map(({ key, label, placeholder, hint }) => {
                   const hasError = prErrors[key]
                   return (
                     <div key={key} className="space-y-1.5">

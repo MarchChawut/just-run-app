@@ -52,7 +52,7 @@ export function speedLabel(pace: string, treadmill: boolean): string {
 
 // ─── Step generators ───────────────────────────────────────────────────────
 
-function warmupSection(easyPace: string, treadmill: boolean): WorkoutSection {
+function warmupSection(easyPace: string, _treadmill: boolean): WorkoutSection {
   return {
     key: "warmup",
     label: "Warm-Up",
@@ -293,7 +293,7 @@ function buildBrokenMile(distance: number, easePace: string, tempoPace: string, 
   ]
 }
 
-function buildLong(distance: number, easePace: string, longPace: string, treadmill: boolean): WorkoutSection[] {
+function buildLong(distance: number, easePace: string, longPace: string, _treadmill: boolean): WorkoutSection[] {
   const mainDist = Math.max(3, distance - 2)
   return [
     {
@@ -398,7 +398,7 @@ function buildRest(): WorkoutSection[] {
   ]
 }
 
-function buildRecovery(distance: number, recoveryPace: string, treadmill: boolean): WorkoutSection[] {
+function buildRecovery(distance: number, recoveryPace: string, _treadmill: boolean): WorkoutSection[] {
   return [
     {
       key: "main",
@@ -461,7 +461,7 @@ function buildTrailHills(distance: number, easyPace: string, hillPace: string, t
   ]
 }
 
-function buildTrailLong(distance: number, easyPace: string, treadmill: boolean): WorkoutSection[] {
+function buildTrailLong(distance: number, easyPace: string, _treadmill: boolean): WorkoutSection[] {
   const hikeDist = (distance * 0.35).toFixed(1)
   const runDist = (distance * 0.50).toFixed(1)
   return [

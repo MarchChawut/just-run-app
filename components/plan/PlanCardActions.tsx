@@ -130,7 +130,7 @@ export function PlanCardActions({ planId, planName, isActive }: Props) {
             <DialogTitle>ลบแผนซ้อม</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            ต้องการลบ <span className="font-semibold text-foreground">"{planName}"</span> ใช่ไหม?
+            ต้องการลบ <span className="font-semibold text-foreground">&quot;{planName}&quot;</span> ใช่ไหม?
             การลบจะลบข้อมูลการบันทึกการวิ่งทั้งหมดในแผนนี้ด้วย และไม่สามารถกู้คืนได้
           </p>
           <DialogFooter className="gap-2">

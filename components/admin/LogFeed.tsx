@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react"
 import { getLogs } from "@/app/actions/admin"
-import type { ActivityAction } from "@/types"
 
 type LogEntry = {
   id: string
@@ -26,8 +25,6 @@ const ACTION_META: Record<string, { label: string; color: string; icon: string }
   meal_updated:     { label: "แก้เมนู (admin)",   color: "#74c8ff", icon: "✏️" },
   meal_deleted:     { label: "ลบเมนู (admin)",    color: "#ff8888", icon: "🗑️" },
 }
-
-const ALL_ACTIONS = Object.keys(ACTION_META) as ActivityAction[]
 
 function DetailText({ detail }: { detail: unknown }) {
   if (!detail || typeof detail !== "object") return null

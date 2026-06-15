@@ -5,16 +5,9 @@ import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
 import { WORKOUT_COLORS, TARGET_DISTANCE_LABELS, PHASE_COLORS } from "@/types"
 import { DayActionSheet } from "@/components/plan/DayActionSheet"
-import type { GeneratedPlan, GeneratedDay, GeneratedWeek, TrainingPlan, CompletionMap, CompletionRecord } from "@/types"
+import type { GeneratedPlan, GeneratedDay, TrainingPlan, CompletionMap, CompletionRecord } from "@/types"
 
 const DAYS_HEADER = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
-
-const PHASE_KEY_MAP: Record<string, keyof typeof PHASE_COLORS> = {
-  "Base Training": "base",
-  "Speed & Strength": "build",
-  "Peak Training": "peak",
-  "Peak & Taper": "taper",
-}
 
 // Find the Sunday of the week containing startDate
 function weekStartSunday(startDate: Date): Date {
@@ -267,7 +260,6 @@ export function PlanCalendarView({
                 const compKey = pd ? `${pd.weekNumber}-${pd.dayIndex}` : ""
                 const comp = pd ? completionMap[compKey] : undefined
                 const compPct = comp?.completion ?? 0
-                const phaseKey = pd ? PHASE_KEY_MAP[pd.phaseName] : undefined
                 const workoutColor = pd ? (WORKOUT_COLORS[pd.day.type] ?? "#555") : "#333"
                 const isRest = pd?.day.type === "rest"
                 const isActive = !!pd && !isRest

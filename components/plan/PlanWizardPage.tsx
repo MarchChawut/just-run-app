@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createPlanFromWizard } from "@/app/actions/plan"
-import { DISTANCE_CONFIGS, getDefaultTrainingDays } from "@/lib/trainingEngine"
+import { DISTANCE_CONFIGS, getDefaultTrainingDays, isTrailDistance, normalizeDistance } from "@/lib/trainingEngine"
 import {
   TARGET_DISTANCE_LABELS,
   TARGET_DISTANCE_ICONS,
@@ -30,8 +30,14 @@ function defaultState(profile: RunnerProfile | null): WizardFormState {
   try {
     trainingDays = JSON.parse(profile?.trainingDays ?? "[]")
   } catch {}
+  const initialDistance: TargetDistance | "" = profile?.targetDistance
+    ? normalizeDistance(profile.targetDistance)
+    : ""
   return {
-    targetDistance: (profile?.targetDistance as TargetDistance) ?? "",
+    targetDistance: initialDistance,
+    elevationGain:
+      profile?.elevationGain ??
+      (initialDistance ? DISTANCE_CONFIGS[initialDistance].defaultGain : 0),
     startDate: new Date().toISOString().slice(0, 10),
     raceDate: "",
     trainingWeeks: 12,
@@ -60,6 +66,9 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
   const [error, setError] = useState("")
   const [isPending, startTransition] = useTransition()
   const [zone2Custom, setZone2Custom] = useState(false)
+  // Track whether the user has manually edited elevation gain, so switching
+  // distance updates the default only while it's untouched.
+  const [gainTouched, setGainTouched] = useState(false)
 
   const update = (patch: Partial<WizardFormState>) => setForm((prev) => ({ ...prev, ...patch }))
 
@@ -72,7 +81,10 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
   }
 
   const handleDistanceSelect = (d: TargetDistance) => {
-    update({ targetDistance: d })
+    // Auto-fill the typical gain for the new distance unless the user set one.
+    const patch: Partial<WizardFormState> = { targetDistance: d }
+    if (!gainTouched) patch.elevationGain = DISTANCE_CONFIGS[d].defaultGain
+    update(patch)
     setStep(1)
   }
 
@@ -137,6 +149,7 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
         intensity: form.intensity,
         terrainType: form.terrainType as "road" | "trail" | "track" | "mixed",
         runMode: form.runMode,
+        elevationGain: isTrailDistance(form.targetDistance) ? form.elevationGain : undefined,
         pr5k: form.pr5k || undefined,
         pr10k: form.pr10k || undefined,
         prHalf: form.prHalf || undefined,
@@ -631,6 +644,32 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
                   ))}
                 </div>
               </div>
+
+              {/* Elevation gain — trail distances only */}
+              {form.targetDistance && isTrailDistance(form.targetDistance) && (
+                <div className="space-y-2">
+                  <Label>Elevation Gain (ระยะสะสมความสูง)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={15000}
+                      step={50}
+                      value={form.elevationGain}
+                      onChange={(e) => {
+                        setGainTouched(true)
+                        update({ elevationGain: Math.max(0, Math.min(15000, Number(e.target.value) || 0)) })
+                      }}
+                      className="w-32"
+                    />
+                    <span className="text-sm" style={{ color: "#888" }}>เมตร (D+)</span>
+                  </div>
+                  <p className="text-xs" style={{ color: "#666" }}>
+                    ค่าเริ่มต้น {DISTANCE_CONFIGS[form.targetDistance].defaultGain}m ·
+                    ยิ่งชันมาก แผนจะเน้นซ้อมเนิน/power hike และเพซ/เวลาคาดการณ์จะปรับตาม
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -663,6 +702,7 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
                   { label: "Long Run", value: `วัน${DAYS_TH[form.longRunDay]}` },
                   { label: "ความเข้มข้น", value: { gentle: "ผ่อนคลาย", normal: "ปกติ", challenging: "ท้าทาย", elite: "Elite" }[form.intensity] },
                   { label: "พื้นสนาม", value: form.terrainType },
+                  ...(isTrailDistance(form.targetDistance) ? [{ label: "Elevation Gain", value: `${form.elevationGain} m (D+)` }] : []),
                   ...(form.pr5k ? [{ label: "PR 5K", value: form.pr5k }] : []),
                   ...(form.prFull ? [{ label: "PR มาราธอน", value: form.prFull }] : []),
                 ].map(({ label, value }) => (

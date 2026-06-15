@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { createPlanWizardSchema, TARGET_DISTANCE_VALUES, type CreatePlanWizardInput } from "@/lib/validations"
+import { createPlanWizardSchema, type CreatePlanWizardInput } from "@/lib/validations"
 import { generatePlan, DISTANCE_CONFIGS } from "@/lib/trainingEngine"
 import { loadFormula } from "@/lib/formulaLoader"
 import { logActivity } from "@/lib/activityLogger"
@@ -49,6 +49,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
     prFull: data.prFull || undefined,
     age: existingProfile?.age ?? undefined,
     morningZone2: data.morningZone2,
+    elevationGain: data.elevationGain,
     formula,
   }
 
@@ -65,11 +66,13 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
         raceDate: race,
         trainingWeeks,
         projectedTime: generatedPlan.projectedFinishTime,
+        elevationGain: data.elevationGain ?? null,
         planData: generatedPlan as object,
         isActive: true,
       },
     })
-  } catch {
+  } catch (e) {
+    console.error("[createPlanFromWizard] trainingPlan.create failed:", e)
     return { error: "ไม่สามารถบันทึกแผนได้ — กรุณาลองใหม่" }
   }
 
@@ -89,6 +92,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
       intensity: data.intensity,
       terrainType: data.terrainType,
       runMode: data.runMode,
+      elevationGain: data.elevationGain ?? null,
       pr5k: data.pr5k || null,
       pr10k: data.pr10k || null,
       prHalf: data.prHalf || null,
@@ -106,6 +110,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
       intensity: data.intensity,
       terrainType: data.terrainType,
       runMode: data.runMode,
+      elevationGain: data.elevationGain ?? null,
       pr5k: data.pr5k || null,
       pr10k: data.pr10k || null,
       prHalf: data.prHalf || null,
@@ -165,49 +170,6 @@ export async function deletePlan(planId: string) {
   }
 
   void logActivity({ userId: session.user.id, userEmail: session.user.email ?? undefined, action: "plan_deleted", detail: { planId } })
-
-  revalidatePath("/plan")
-  revalidatePath("/dashboard")
-  return { success: true }
-}
-
-/** @deprecated Use createPlanFromWizard instead */
-export async function createPlan(formData: FormData) {
-  const session = await auth()
-  if (!session?.user?.id) return { error: "ไม่ได้เข้าสู่ระบบ" }
-
-  const name = String(formData.get("name") ?? "แผนซ้อมวิ่ง")
-  const targetDistance = String(formData.get("targetDistance"))
-  const startDateStr = String(formData.get("startDate") ?? "")
-  const raceDateStr = String(formData.get("raceDate") ?? "")
-
-  if (!TARGET_DISTANCE_VALUES.includes(targetDistance as TargetDistance)) {
-    return { error: "ระยะทางไม่ถูกต้อง" }
-  }
-  if (!startDateStr || !raceDateStr) return { error: "กรุณาระบุวันที่" }
-
-  const start = new Date(startDateStr)
-  const race = new Date(raceDateStr)
-  if (race <= start) return { error: "วันแข่งต้องหลังวันเริ่มซ้อม" }
-
-  const trainingWeeks = Math.max(1, Math.round((race.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
-
-  try {
-    await prisma.trainingPlan.create({
-      data: {
-        userId: session.user.id,
-        name,
-        targetDistance,
-        startDate: start,
-        raceDate: race,
-        trainingWeeks,
-        planData: { weeks: [] },
-        isActive: true,
-      },
-    })
-  } catch {
-    return { error: "ไม่สามารถบันทึกแผนได้ — กรุณาลองใหม่" }
-  }
 
   revalidatePath("/plan")
   revalidatePath("/dashboard")

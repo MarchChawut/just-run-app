@@ -10,10 +10,10 @@ export default async function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md p-8 space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight" style={{ color: "#E8FF4A" }}>
-            ตัวตึง - Just Run!
+          <h1 className="text-8xl font-bold tracking-tight" style={{ color: "#E8FF4A" }}>
+            ตัวตึง
           </h1>
-          <p className="text-xl text-muted-foreground">Just Run! 🏃</p>
+          <p className="text-4xl text-muted-foreground " style={{ color: "#E8FF4A" }}>Just Run! 🏃</p>
           <p className="text-sm text-muted-foreground">
             วางแผนซ้อมวิ่งด้วยหลักวิทยาศาสตร์การกีฬา
           </p>

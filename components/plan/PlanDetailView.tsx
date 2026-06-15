@@ -131,7 +131,12 @@ function WeekCard({
               {week.phase}
             </span>
           </div>
-          <span className="text-xs font-mono" style={{ color: "#e8ff4a" }}>{week.totalKm} km</span>
+          <div className="flex items-center gap-2">
+            {(week.elevationGain ?? 0) > 0 && (
+              <span className="text-xs font-mono" style={{ color: "#ff9f4a" }}>+{week.elevationGain}m</span>
+            )}
+            <span className="text-xs font-mono" style={{ color: "#e8ff4a" }}>{week.totalKm} km</span>
+          </div>
         </div>
 
         {/* 7 workout dots */}
@@ -166,6 +171,9 @@ function WeekCard({
                 </span>
                 {day.distance > 0 && (
                   <span className="text-xs font-mono shrink-0" style={{ color: "#e8ff4a" }}>{day.distance.toFixed(1)} km</span>
+                )}
+                {(day.elevationGain ?? 0) > 0 && (
+                  <span className="text-xs font-mono shrink-0" style={{ color: "#ff9f4a" }}>+{day.elevationGain}m</span>
                 )}
                 {day.pace !== "N/A" && day.pace && (
                   <span className="text-xs font-mono shrink-0" style={{ color: "#666" }}>{day.pace}/km</span>

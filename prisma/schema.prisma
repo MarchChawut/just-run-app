@@ -80,6 +80,7 @@ model RunnerProfile {
   intensity      String  @default("normal")
   terrainType    String  @default("road")
   runMode        String  @default("outdoor")
+  elevationGain  Int?
   conditions     String  @default("[]")
   shoes          String  @default("[]")
 
@@ -107,6 +108,7 @@ model TrainingPlan {
   raceDate       DateTime
   trainingWeeks  Int
   projectedTime  String?
+  elevationGain  Int?
   planData       Json
   isActive       Boolean  @default(true)
 

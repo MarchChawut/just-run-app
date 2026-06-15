@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { logActivity } from "@/lib/activityLogger"
+import { TARGET_DISTANCE_VALUES } from "@/lib/validations"
 import { z } from "zod"
 
 const profileSchema = z.object({
   age: z.coerce.number().int().min(10).max(100).optional(),
-  targetDistance: z.enum(["3k_beginner","5k","mini_marathon","half_marathon","full_marathon","ultra_50","ultra_100","trail"]),
+  targetDistance: z.enum(TARGET_DISTANCE_VALUES),
   daysPerWeek: z.coerce.number().int().min(2).max(7).default(4),
   trainingDays: z.string().default("[]"),
   longRunDay: z.coerce.number().int().min(0).max(6).default(6),
@@ -17,6 +18,7 @@ const profileSchema = z.object({
   eveningMinutes: z.coerce.number().int().optional(),
   intensity: z.enum(["gentle", "normal", "challenging", "elite"]).default("normal"),
   terrainType: z.enum(["road", "trail", "track", "mixed"]).default("road"),
+  elevationGain: z.coerce.number().int().min(0).max(15000).optional(),
   pr5k: z.string().optional(),
   pr10k: z.string().optional(),
   prHalf: z.string().optional(),

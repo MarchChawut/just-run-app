@@ -6,6 +6,9 @@ import { logActivity } from "@/lib/activityLogger"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  // Self-hosted behind a reverse proxy (NAS/custom domain) — trust the forwarded
+  // Host header instead of throwing UntrustedHost on sign-in in production.
+  trustHost: true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,

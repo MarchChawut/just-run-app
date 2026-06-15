@@ -152,6 +152,7 @@ export function PlanCalendarView({
   const planDays = buildPlanDays(planData, startDate)
   const calendarRows = buildCalendarGrid(viewYear, viewMonth, planDays)
   const totalKm = planData.weeks.reduce((s, w) => s + w.totalKm, 0)
+  const totalGain = planData.weeks.reduce((s, w) => s + (w.elevationGain ?? 0), 0)
   const distLabel = TARGET_DISTANCE_LABELS[plan.targetDistance as keyof typeof TARGET_DISTANCE_LABELS] ?? plan.targetDistance
 
   const completedCount = Object.values(completionMap).filter((r) => r.completion >= 100).length
@@ -181,6 +182,12 @@ export function PlanCalendarView({
           <span>{plan.trainingWeeks} สัปดาห์</span>
           <span>·</span>
           <span>{totalKm} km รวม</span>
+          {totalGain > 0 && (
+            <>
+              <span>·</span>
+              <span style={{ color: "#ff9f4a" }}>+{totalGain.toLocaleString()}m D+</span>
+            </>
+          )}
           {planData.projectedFinishTime && (
             <>
               <span>·</span>

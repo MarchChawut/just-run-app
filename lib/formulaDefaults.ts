@@ -9,6 +9,8 @@ export const DEFAULT_ALGORITHM_PARAMS: AlgorithmParams = {
   taperFactor: 0.75,
   recoveryWeekInterval: 4,
   longRunRatioBase: 0.38,
+  startKmFactor: 0.90,
+  maxWeeklyIncrease: 0.10,
 }
 
 export const DEFAULT_MULTIPLIERS: PaceMultipliers = {
@@ -54,10 +56,30 @@ export const FORMULA_DEFAULTS: Record<string, FormulaSettings> = {
     baseKmPerWeek: 60, peakKmPerWeek: 120, longRunMax: 60,
     paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.35, recovery: 1.45 },
   },
-  "trail": {
-    defaultRacePace: 480, terrainModifier: 30,
-    baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 20,
+  "trail_15": {
+    defaultRacePace: 500, terrainModifier: 15, defaultGain: 600, gainPaceFactor: 0.9,
+    baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 18,
     paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.30, hills: 0.90, power_hike: 1.60 },
+  },
+  "trail_20": {
+    defaultRacePace: 510, terrainModifier: 15, defaultGain: 900, gainPaceFactor: 0.9,
+    baseKmPerWeek: 30, peakKmPerWeek: 60, longRunMax: 24,
+    paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.30, hills: 0.90, power_hike: 1.60 },
+  },
+  "trail_30": {
+    defaultRacePace: 520, terrainModifier: 15, defaultGain: 1400, gainPaceFactor: 0.9,
+    baseKmPerWeek: 40, peakKmPerWeek: 75, longRunMax: 32,
+    paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.32, hills: 0.90, power_hike: 1.60 },
+  },
+  "trail_40": {
+    defaultRacePace: 530, terrainModifier: 15, defaultGain: 2000, gainPaceFactor: 0.9,
+    baseKmPerWeek: 45, peakKmPerWeek: 90, longRunMax: 38,
+    paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.33, recovery: 1.40, hills: 0.90, power_hike: 1.60 },
+  },
+  "trail_50": {
+    defaultRacePace: 540, terrainModifier: 15, defaultGain: 2600, gainPaceFactor: 0.9,
+    baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45,
+    paceMultipliers: { ...DEFAULT_MULTIPLIERS, easy: 1.35, recovery: 1.42, hills: 0.90, power_hike: 1.60 },
   },
 }
 

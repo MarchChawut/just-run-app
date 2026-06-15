@@ -19,7 +19,11 @@ export type TargetDistance =
   | "full_marathon"
   | "ultra_50"
   | "ultra_100"
-  | "trail"
+  | "trail_15"
+  | "trail_20"
+  | "trail_30"
+  | "trail_40"
+  | "trail_50"
 
 export const TARGET_DISTANCE_LABELS: Record<TargetDistance, string> = {
   "3k_beginner": "3K (เริ่มต้น < 28 นาที)",
@@ -29,7 +33,11 @@ export const TARGET_DISTANCE_LABELS: Record<TargetDistance, string> = {
   "full_marathon": "Full Marathon (42.2K)",
   "ultra_50": "Ultra 50K",
   "ultra_100": "Ultra 100K",
-  "trail": "Trail Running",
+  "trail_15": "Trail 15K",
+  "trail_20": "Trail 20K",
+  "trail_30": "Trail 30K",
+  "trail_40": "Trail 40K",
+  "trail_50": "Trail 50K",
 }
 
 export const TARGET_DISTANCE_ICONS: Record<TargetDistance, string> = {
@@ -40,7 +48,11 @@ export const TARGET_DISTANCE_ICONS: Record<TargetDistance, string> = {
   "full_marathon": "🏅",
   "ultra_50": "💪",
   "ultra_100": "🔥",
-  "trail": "🌲",
+  "trail_15": "🌲",
+  "trail_20": "🌲",
+  "trail_30": "🏔️",
+  "trail_40": "🏔️",
+  "trail_50": "⛰️",
 }
 
 // ─── Workout types ─────────────────────────────────────────────────────────
@@ -130,12 +142,14 @@ export type GeneratedDay = {
   description: string
   rpe: number
   notes: string
+  elevationGain: number   // session climb in meters (D+) — 0 for road / rest
 }
 
 export type GeneratedWeek = {
   weekNumber: number
   phase: string
   totalKm: number
+  elevationGain: number    // weekly total climb in meters (D+)
   days: GeneratedDay[]
 }
 
@@ -169,14 +183,18 @@ export type AlgorithmParams = {
   taperFactor: number           // 0.75 — exponential decay per taper week
   recoveryWeekInterval: number  // 4 — deload every N weeks in build phase
   longRunRatioBase: number      // 0.38 — fraction of weekly km for long run (4 days/week)
+  startKmFactor: number         // 0.90 — week-1 volume as fraction of baseKm (gentle start)
+  maxWeeklyIncrease: number     // 0.10 — max week-over-week volume increase (10% rule)
 }
 
 export type FormulaSettings = {
   defaultRacePace: number    // sec/km when no PR — e.g. 450 for 5K
-  terrainModifier: number    // extra sec/km for terrain — 0 road, 30 trail
+  terrainModifier: number    // extra sec/km for terrain — 0 road, 15 trail
   baseKmPerWeek: number
   peakKmPerWeek: number
   longRunMax: number
+  defaultGain?: number       // default elevation gain (m) for the race — trail only
+  gainPaceFactor?: number    // extra sec/km per (m/km) of gain density — default 0.9
   paceMultipliers: PaceMultipliers
   phasePatterns?: PhasePatternMap  // null = use built-in patterns
   algorithmParams?: AlgorithmParams
@@ -210,6 +228,7 @@ export type PlanGenerationInput = {
   prFull?: string
   age?: number
   morningZone2?: boolean
+  elevationGain?: number      // race elevation gain in meters (trail); falls back to defaults
   formula?: FormulaSettings   // loaded from DB by server action; overrides hardcoded defaults
 }
 
@@ -233,6 +252,7 @@ export type WizardFormState = {
   intensity: "gentle" | "normal" | "challenging" | "elite"
   terrainType: string
   runMode: "outdoor" | "treadmill"
+  elevationGain: number
   name: string
 }
 

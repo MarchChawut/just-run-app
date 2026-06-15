@@ -24,7 +24,6 @@ export function Navbar({ user, isAdmin }: NavbarProps) {
           <span className="text-xl font-bold" style={{ color: "#E8FF4A" }}>
             ตัวตึง - Just Run!
           </span>
-          <span className="text-sm text-muted-foreground hidden sm:block">Just Run!</span>
         </Link>
 
         <DropdownMenu>

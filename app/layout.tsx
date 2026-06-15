@@ -21,7 +21,7 @@ const bebasNeue = Bebas_Neue({
 })
 
 export const metadata: Metadata = {
-  title: "ตัวตึง Just Run!",
+  title: "ตัวตึง - Just Run!",
   description: "วางแผนซ้อมวิ่งด้วยหลักวิทยาศาสตร์การกีฬา",
 }
 

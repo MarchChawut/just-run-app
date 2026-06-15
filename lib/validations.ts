@@ -8,7 +8,11 @@ export const TARGET_DISTANCE_VALUES = [
   "full_marathon",
   "ultra_50",
   "ultra_100",
-  "trail",
+  "trail_15",
+  "trail_20",
+  "trail_30",
+  "trail_40",
+  "trail_50",
 ] as const
 
 export const runnerProfileSchema = z.object({
@@ -25,6 +29,7 @@ export const runnerProfileSchema = z.object({
   terrainType: z.enum(["road", "trail", "track", "mixed"]).default("road"),
   conditions: z.array(z.string()).default([]),
   shoes: z.array(z.string()).default([]),
+  elevationGain: z.number().int().min(0).max(15000).optional(),
   pr5k: z.string().optional(),
   pr10k: z.string().optional(),
   prHalf: z.string().optional(),
@@ -58,6 +63,7 @@ export const createPlanWizardSchema = z.object({
   intensity: z.enum(["gentle", "normal", "challenging", "elite"]),
   terrainType: z.enum(["road", "trail", "track", "mixed"]),
   runMode: z.enum(["outdoor", "treadmill"]).default("outdoor"),
+  elevationGain: z.number().int().min(0).max(15000).optional(),
   pr5k: z.string().optional(),
   pr10k: z.string().optional(),
   prHalf: z.string().optional(),

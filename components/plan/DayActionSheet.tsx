@@ -5,7 +5,7 @@ import { saveCompletion } from "@/app/actions/workout"
 import { WORKOUT_COLORS, WORKOUT_LABELS } from "@/types"
 import { generateWorkoutSteps, speedLabel, type WorkoutSection } from "@/lib/workoutSteps"
 import { getMealsForWorkout, MEAL_LABELS, type MealSlot } from "@/lib/mealData"
-import { calculatePaces } from "@/lib/trainingEngine"
+import { calculatePaces, isTrailDistance } from "@/lib/trainingEngine"
 import type { GeneratedDay, CompletionRecord, PlanGenerationInput } from "@/types"
 
 type Props = {
@@ -146,7 +146,7 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
     if (!planInput) return {} as Record<string, string>
     try { return calculatePaces(planInput as PlanGenerationInput) } catch { return {} as Record<string, string> }
   }, [planInput])
-  const isTrail = planInput?.targetDistance === "trail"
+  const isTrail = !!planInput?.targetDistance && isTrailDistance(planInput.targetDistance)
   const sections = useMemo(
     () => generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2], isTrail),
     [day.type, day.distance, paces, isTrail]
@@ -225,6 +225,9 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
                 <span className="font-mono text-sm" style={{ color: "#e8ff4a" }}>
                   {day.distance.toFixed(1)} km{day.pace !== "N/A" && ` · ${day.pace}/km`}
                 </span>
+                {(day.elevationGain ?? 0) > 0 && (
+                  <span className="font-mono text-sm" style={{ color: "#ff9f4a" }}>+{day.elevationGain}m D+</span>
+                )}
                 {isTreadmill && day.pace !== "N/A" && (
                   <span className="px-2 py-0.5 rounded text-xs font-mono font-bold"
                     style={{ background: "rgba(232,255,74,0.12)", color: "#e8ff4a", border: "1px solid rgba(232,255,74,0.3)" }}>

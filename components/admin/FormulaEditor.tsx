@@ -243,6 +243,7 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
             phaseBoundaryBase: 0.40, phaseBoundaryBuild: 0.75, phaseBoundaryPeak: 0.90,
             deloadFactor: 0.80, peakOscillation: 0.85, taperFactor: 0.75,
             recoveryWeekInterval: 4, longRunRatioBase: 0.38,
+            startKmFactor: 0.90, maxWeeklyIncrease: 0.10,
           }
           const setAp = (key: string, val: number) => {
             patch("algorithmParams", { ...ap, [key]: val })
@@ -256,6 +257,8 @@ export function FormulaEditor({ targetDistance, initialFormula, isCustom }: Prop
             { key: "taperFactor",        label: "Taper decay factor",  hint: "Exponential decay ต่อสัปดาห์ใน taper — default 0.75 (ลด 25%/สัปดาห์)", min: 0.4, max: 0.9, step: 0.05 },
             { key: "recoveryWeekInterval", label: "Recovery interval (weeks)", hint: "Deload ทุกกี่สัปดาห์ใน build — default ทุก 4 สัปดาห์", min: 2, max: 8, step: 1 },
             { key: "longRunRatioBase",   label: "Long run ratio (4 days)", hint: "% ของ weekly km สำหรับ long run เมื่อซ้อม 4 วัน/สัปดาห์ — default 38%", min: 0.2, max: 0.55, step: 0.02 },
+            { key: "startKmFactor",      label: "Start km factor",     hint: "สัปดาห์แรกเริ่มที่กี่ % ของ base km (เริ่มเบา ค่อยเป็นค่อยไป) — default 90%", min: 0.5, max: 1.0, step: 0.05 },
+            { key: "maxWeeklyIncrease",  label: "Max weekly increase", hint: "เพิ่มวอลุ่มได้ไม่เกินกี่ %/สัปดาห์ (10% rule) — default 10%", min: 0.05, max: 0.20, step: 0.01 },
           ]
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

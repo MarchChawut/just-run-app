@@ -6,6 +6,7 @@ import type {
   GeneratedWeek,
   GeneratedPlan,
   PlanGenerationInput,
+  AlgorithmParams,
 } from "@/types"
 import { calcHRZones, type HRZones } from "@/lib/hrZones"
 import { DEFAULT_MULTIPLIERS, DEFAULT_ALGORITHM_PARAMS } from "@/lib/formulaDefaults"
@@ -20,18 +21,33 @@ export type DistanceConfig = {
   baseKmPerWeek: number
   peakKmPerWeek: number
   longRunMax: number
+  defaultGain: number   // typical race elevation gain in meters (0 for road)
   icon: string
 }
 
 export const DISTANCE_CONFIGS: Record<TargetDistance, DistanceConfig> = {
-  "3k_beginner": { label: "3K (เริ่มต้น < 28 นาที)", km: 3, minWeeks: 6, maxWeeks: 12, recommendedWeeks: [6, 8, 10, 12], baseKmPerWeek: 10, peakKmPerWeek: 24, longRunMax: 5, icon: "🌱" },
-  "5k":          { label: "5K", km: 5, minWeeks: 8, maxWeeks: 16, recommendedWeeks: [8, 10, 12, 16], baseKmPerWeek: 15, peakKmPerWeek: 35, longRunMax: 8, icon: "⚡" },
-  "mini_marathon": { label: "Mini Marathon (10K)", km: 10, minWeeks: 10, maxWeeks: 16, recommendedWeeks: [10, 12, 14, 16], baseKmPerWeek: 20, peakKmPerWeek: 50, longRunMax: 14, icon: "🏃" },
-  "half_marathon": { label: "Half Marathon (21.1K)", km: 21.1, minWeeks: 12, maxWeeks: 20, recommendedWeeks: [12, 14, 16, 18, 20], baseKmPerWeek: 30, peakKmPerWeek: 65, longRunMax: 22, icon: "🥈" },
-  "full_marathon": { label: "Full Marathon (42.2K)", km: 42.195, minWeeks: 16, maxWeeks: 24, recommendedWeeks: [16, 18, 20, 24], baseKmPerWeek: 40, peakKmPerWeek: 80, longRunMax: 35, icon: "🏅" },
-  "ultra_50":    { label: "Ultra 50K", km: 50, minWeeks: 20, maxWeeks: 32, recommendedWeeks: [20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, icon: "💪" },
-  "ultra_100":   { label: "Ultra 100K", km: 100, minWeeks: 24, maxWeeks: 36, recommendedWeeks: [24, 28, 32, 36], baseKmPerWeek: 60, peakKmPerWeek: 120, longRunMax: 60, icon: "🔥" },
-  "trail":       { label: "Trail Running (15K)", km: 15, minWeeks: 12, maxWeeks: 20, recommendedWeeks: [12, 14, 16, 20], baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 20, icon: "🌲" },
+  "3k_beginner": { label: "3K (เริ่มต้น < 28 นาที)", km: 3, minWeeks: 6, maxWeeks: 12, recommendedWeeks: [6, 8, 10, 12], baseKmPerWeek: 10, peakKmPerWeek: 24, longRunMax: 5, defaultGain: 0, icon: "🌱" },
+  "5k":          { label: "5K", km: 5, minWeeks: 8, maxWeeks: 16, recommendedWeeks: [8, 10, 12, 16], baseKmPerWeek: 15, peakKmPerWeek: 35, longRunMax: 8, defaultGain: 0, icon: "⚡" },
+  "mini_marathon": { label: "Mini Marathon (10K)", km: 10, minWeeks: 10, maxWeeks: 16, recommendedWeeks: [10, 12, 14, 16], baseKmPerWeek: 20, peakKmPerWeek: 50, longRunMax: 14, defaultGain: 0, icon: "🏃" },
+  "half_marathon": { label: "Half Marathon (21.1K)", km: 21.1, minWeeks: 12, maxWeeks: 20, recommendedWeeks: [12, 14, 16, 18, 20], baseKmPerWeek: 30, peakKmPerWeek: 65, longRunMax: 22, defaultGain: 0, icon: "🥈" },
+  "full_marathon": { label: "Full Marathon (42.2K)", km: 42.195, minWeeks: 16, maxWeeks: 24, recommendedWeeks: [16, 18, 20, 24], baseKmPerWeek: 40, peakKmPerWeek: 80, longRunMax: 35, defaultGain: 0, icon: "🏅" },
+  "ultra_50":    { label: "Ultra 50K", km: 50, minWeeks: 20, maxWeeks: 32, recommendedWeeks: [20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, defaultGain: 0, icon: "💪" },
+  "ultra_100":   { label: "Ultra 100K", km: 100, minWeeks: 24, maxWeeks: 36, recommendedWeeks: [24, 28, 32, 36], baseKmPerWeek: 60, peakKmPerWeek: 120, longRunMax: 60, defaultGain: 0, icon: "🔥" },
+  "trail_15":    { label: "Trail 15K", km: 15, minWeeks: 8, maxWeeks: 20, recommendedWeeks: [8, 10, 11, 12, 14, 16, 20], baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 18, defaultGain: 600, icon: "🌲" },
+  "trail_20":    { label: "Trail 20K", km: 20, minWeeks: 8, maxWeeks: 22, recommendedWeeks: [8, 10, 11, 12, 16, 18, 22], baseKmPerWeek: 30, peakKmPerWeek: 60, longRunMax: 24, defaultGain: 900, icon: "🌲" },
+  "trail_30":    { label: "Trail 30K", km: 30, minWeeks: 8, maxWeeks: 26, recommendedWeeks: [8, 10, 11, 12, 16, 20, 24, 26], baseKmPerWeek: 40, peakKmPerWeek: 75, longRunMax: 32, defaultGain: 1400, icon: "🏔️" },
+  "trail_40":    { label: "Trail 40K", km: 40, minWeeks: 8, maxWeeks: 30, recommendedWeeks: [8, 10, 11, 12, 18, 22, 26, 30], baseKmPerWeek: 45, peakKmPerWeek: 90, longRunMax: 38, defaultGain: 2000, icon: "🏔️" },
+  "trail_50":    { label: "Trail 50K", km: 50, minWeeks: 8, maxWeeks: 32, recommendedWeeks: [8, 10, 11, 12, 20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, defaultGain: 2600, icon: "⛰️" },
+}
+
+/** True for any trail distance (trail_15 … trail_50). */
+export function isTrailDistance(d: TargetDistance | string): boolean {
+  return String(d).startsWith("trail")
+}
+
+/** Map legacy "trail" rows (pre-multi-distance) to trail_15 to avoid undefined lookups. */
+export function normalizeDistance(d: string): TargetDistance {
+  return (d === "trail" ? "trail_15" : d) as TargetDistance
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────
@@ -64,19 +80,56 @@ function clampPace(s: number): string {
 }
 
 // ─── Phase logic ───────────────────────────────────────────────────────────
+//
+// Single source of truth for phase / deload-week resolution. All consumers
+// (generateWeeklyKm, getPhase, assignDaySlots) work off the SAME 0-indexed
+// week number and the SAME floored phase boundaries, so the volume curve, the
+// phase label and the workout-easing always agree on which week is which.
 
-/** Determine training phase (verbatim: S()) */
-export function getPhase(weekNum: number, totalWeeks: number): TrainingPhase {
-  const ratio = weekNum / totalWeeks
-  if (ratio < 0.4) return "base"
-  if (ratio < 0.75) return "build"
-  if (ratio < 0.9) return "peak"
+/** Floored phase boundary indices (0-indexed week numbers). */
+function getPhaseBoundaries(n: number, ap: AlgorithmParams) {
+  return {
+    baseEnd: Math.floor(n * ap.phaseBoundaryBase),
+    buildEnd: Math.floor(n * ap.phaseBoundaryBuild),
+    peakEnd: Math.floor(n * ap.phaseBoundaryPeak),
+  }
+}
+
+/** Resolve the training phase for a 0-indexed week. */
+function getPhaseForIndex(i: number, n: number, ap: AlgorithmParams): TrainingPhase {
+  const { baseEnd, buildEnd, peakEnd } = getPhaseBoundaries(n, ap)
+  if (i < baseEnd) return "base"
+  if (i < buildEnd) return "build"
+  if (i < peakEnd) return "peak"
   return "taper"
+}
+
+/** Is this 0-indexed week a scheduled deload week within the build phase? */
+function isDeloadWeek(i: number, n: number, ap: AlgorithmParams): boolean {
+  const { baseEnd } = getPhaseBoundaries(n, ap)
+  return (
+    getPhaseForIndex(i, n, ap) === "build" &&
+    (i - baseEnd) % ap.recoveryWeekInterval === ap.recoveryWeekInterval - 1
+  )
+}
+
+/** Determine training phase (verbatim: S()) — thin wrapper over getPhaseForIndex */
+export function getPhase(
+  weekNum: number,
+  totalWeeks: number,
+  ap: AlgorithmParams = DEFAULT_ALGORITHM_PARAMS,
+): TrainingPhase {
+  return getPhaseForIndex(weekNum - 1, totalWeeks, ap)
 }
 
 /** Phase display name (verbatim: ne()) */
 export function getPhaseName(phase: TrainingPhase): string {
   return { base: "Base Training", build: "Speed & Strength", peak: "Peak Training", taper: "Peak & Taper" }[phase]
+}
+
+/** Elevation specificity multiplier by phase — vert ramps up toward race demand, then tapers. */
+const VERT_SPECIFICITY: Record<TrainingPhase, number> = {
+  base: 0.70, build: 0.90, peak: 1.10, taper: 0.60,
 }
 
 // ─── Default training days ─────────────────────────────────────────────────
@@ -112,10 +165,14 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   }
 
   if (!racePace || isNaN(racePace)) {
-    // Use formula override if available, else hardcoded default per distance
-    racePace = input.formula?.defaultRacePace ?? (
-      { "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390, "full_marathon": 390, "ultra_50": 420, "ultra_100": 480, "trail": 480 } as Record<TargetDistance, number>
-    )[input.targetDistance]
+    // Use formula override if available, else hardcoded default per distance.
+    // Typed (not `as`) so a missing key is a compile error — see exhaustiveness note.
+    const defaultRacePaces: Record<TargetDistance, number> = {
+      "3k_beginner": 560, "5k": 450, "mini_marathon": 420, "half_marathon": 390,
+      "full_marathon": 390, "ultra_50": 420, "ultra_100": 480,
+      "trail_15": 500, "trail_20": 510, "trail_30": 520, "trail_40": 530, "trail_50": 540,
+    }
+    racePace = input.formula?.defaultRacePace ?? defaultRacePaces[input.targetDistance]
   }
 
   // Adjust pace based on source distance
@@ -129,9 +186,18 @@ export function calculatePaces(input: PlanGenerationInput): Record<WorkoutType, 
   const intensityMod = ({ gentle: 1.05, normal: 1, challenging: 0.97, elite: 0.94 } as Record<string, number>)[input.intensity]
   r *= intensityMod
 
-  // Terrain modifier — use formula override or default (30 for trail, 0 otherwise)
-  const terrainMod = input.formula?.terrainModifier ?? (input.targetDistance === "trail" ? 30 : 0)
+  // Terrain modifier — flat surface penalty (technical trail), formula override or default
+  const terrainMod = input.formula?.terrainModifier ?? (isTrailDistance(input.targetDistance) ? 15 : 0)
   r += terrainMod
+
+  // Elevation gain penalty — extra sec/km proportional to climb density (m climbed per km).
+  // gain flows into projected finish time automatically via getProjectedTime → calculatePaces.
+  const config = DISTANCE_CONFIGS[input.targetDistance]
+  const gain = input.elevationGain ?? input.formula?.defaultGain ?? config.defaultGain
+  if (gain > 0 && config.km > 0) {
+    const gainDensity = gain / config.km            // m/km
+    r += gainDensity * (input.formula?.gainPaceFactor ?? 0.9)
+  }
 
   // Use formula pace multipliers if available, else DEFAULT_MULTIPLIERS
   const m = { ...DEFAULT_MULTIPLIERS, ...(input.formula?.paceMultipliers ?? {}) }
@@ -278,30 +344,50 @@ export function generateWeeklyKm(input: PlanGenerationInput): number[] {
 
   // Algorithm params — formula override first, then defaults
   const ap = { ...DEFAULT_ALGORITHM_PARAMS, ...(input.formula?.algorithmParams ?? {}) }
+
+  const { buildEnd, peakEnd } = getPhaseBoundaries(n, ap)
+
+  // Gentle week-1 start, then a smooth rising ramp that targets peakKm by the
+  // end of the build phase. `rampEnd` is the last index of the rising ramp.
+  const startKm = baseKm * ap.startKmFactor
+  const rampEnd = Math.max(1, buildEnd - 1)
+
+  // ── Pass 1: rise toward peakKm, then hold at peakKm through the peak phase ──
+  // (taper is computed separately below, from the ACTUAL peak reached). Deload
+  // dips ride on top of the still-rising trend → sawtooth that trends upward.
   const weeks: number[] = []
-
-  const baseEnd = Math.floor(n * ap.phaseBoundaryBase)
-  const buildEnd = Math.floor(n * ap.phaseBoundaryBuild)
-  const peakEnd = Math.floor(n * ap.phaseBoundaryPeak)
-
-  for (let i = 0; i < n; i++) {
-    let km = 0
-    if (i < baseEnd) {
-      const ratio = i / baseEnd
-      km = baseKm + (peakKm * 0.7 - baseKm) * ratio
-    } else if (i < buildEnd) {
-      const ratio = (i - baseEnd) / (buildEnd - baseEnd)
-      km = peakKm * 0.7 + peakKm * 0.3 * ratio
-      if ((i - baseEnd) % ap.recoveryWeekInterval === ap.recoveryWeekInterval - 1) km *= ap.deloadFactor
-    } else if (i < peakEnd) {
-      km = peakKm
-      if (i % 2 === 1) km *= ap.peakOscillation
+  for (let i = 0; i < peakEnd; i++) {
+    let km: number
+    if (i <= rampEnd) {
+      const t = rampEnd > 0 ? i / rampEnd : 1
+      km = startKm + (peakKm - startKm) * t
     } else {
-      km = peakKm * Math.pow(ap.taperFactor, i - peakEnd + 1)
+      km = peakKm // peak-phase target (capped below for short plans)
     }
-    weeks.push(Math.max(5, Math.round(km * intensityMod)))
+    if (isDeloadWeek(i, n, ap)) km *= ap.deloadFactor
+    weeks.push(km)
   }
-  return weeks
+
+  // ── Pass 2: enforce the ~10% rule on every rising (non-deload) step ──
+  // Applied through the peak phase too: on short plans the 10% cap means peakKm
+  // may not be fully reachable — the plan then tops out at the safely-reachable
+  // volume instead of spiking. Compare to the previous non-deload week so a
+  // deload dip never makes the following recovery look like an illegal spike.
+  let lastBuildUp = weeks[0]
+  for (let i = 1; i < peakEnd; i++) {
+    if (isDeloadWeek(i, n, ap)) continue
+    const cap = lastBuildUp * (1 + ap.maxWeeklyIncrease)
+    if (weeks[i] > cap) weeks[i] = cap
+    lastBuildUp = weeks[i]
+  }
+
+  // ── Pass 3: taper down from the actual peak reached, into race day ──
+  const peakReached = peakEnd > 0 ? weeks[peakEnd - 1] : peakKm
+  for (let i = peakEnd; i < n; i++) {
+    weeks.push(peakReached * Math.pow(ap.taperFactor, i - peakEnd + 1))
+  }
+
+  return weeks.map((km) => Math.max(5, Math.round(km * intensityMod)))
 }
 
 // ─── Day slot assignment ───────────────────────────────────────────────────
@@ -319,10 +405,14 @@ export function assignDaySlots(
   targetDistance?: TargetDistance,
   formulaPatterns?: import("@/types").PhasePatternMap,
   algorithmParams?: import("@/types").AlgorithmParams,
+  gainDensity = 0,   // race elevation gain density (m/km) — drives hill/power-hike emphasis
 ): (DaySlot | null)[] {
   const ap = { ...DEFAULT_ALGORITHM_PARAMS, ...(algorithmParams ?? {}) }
+  // Ease workouts on the SAME weeks the volume curve dips (scheduled deload),
+  // plus the final two taper weeks. Uses the shared 0-indexed deload resolver
+  // so workout-easing and the km deload always land on the same week.
   const isRecoveryWeek =
-    (weekNum % ap.recoveryWeekInterval === 0 && phase === "build") || weekNum >= totalWeeks - 2
+    isDeloadWeek(weekNum - 1, totalWeeks, ap) || weekNum >= totalWeeks - 2
 
   // Phase-specific patterns (sports science: Runner's Rosetta Stone)
   const days = Math.min(6, Math.max(3, daysPerWeek))
@@ -384,7 +474,7 @@ export function assignDaySlots(
   // Priority: formula DB patterns (string keys) > trail/road defaults (number keys)
   const workoutPattern: WorkoutType[] = formulaPatterns
     ? ((formulaPatterns[phase]?.[String(days)] ?? formulaPatterns[phase]?.[days]) as WorkoutType[] | undefined) ?? ["easy", "hills"]
-    : (targetDistance === "trail" ? trailPatterns : phasePatterns)[phase]?.[days] ?? ["easy", "hills"]
+    : (targetDistance && isTrailDistance(targetDistance) ? trailPatterns : phasePatterns)[phase]?.[days] ?? ["easy", "hills"]
 
   // Hard workout types that get downgraded to easy on recovery weeks
   const HARD_TYPES = new Set<WorkoutType>([
@@ -402,8 +492,25 @@ export function assignDaySlots(
   const otherDays = trainingDays.filter((d) => d !== longRunDay)
   const dayCount = otherDays.length
 
+  // Resolve per-day workout types from the pattern.
+  const types: WorkoutType[] = otherDays.map((_, i) => workoutPattern[i % workoutPattern.length])
+
+  // Gain-tier emphasis (trail only): hillier races → inject power_hike / hills.
+  // Done BEFORE the recovery downgrade so hills still ease on recovery weeks,
+  // while power_hike (low intensity, not a HARD_TYPE) survives by design.
+  const isTrail = !!targetDistance && isTrailDistance(targetDistance)
+  if (isTrail && gainDensity >= 25) {
+    let needHike = Math.max(0, 1 - types.filter((t) => t === "power_hike").length)
+    let needHills = Math.max(0, (gainDensity > 45 ? 1 : 0) - types.filter((t) => t === "hills").length)
+    for (let i = 0; i < types.length && (needHike > 0 || needHills > 0); i++) {
+      if (types[i] !== "easy") continue
+      if (needHike > 0) { types[i] = "power_hike"; needHike--; continue }
+      if (needHills > 0) { types[i] = "hills"; needHills-- }
+    }
+  }
+
   const slots = otherDays.map((dayIdx, i) => {
-    let wType: WorkoutType = workoutPattern[i % workoutPattern.length]
+    let wType: WorkoutType = types[i]
     if (isRecoveryWeek && HARD_TYPES.has(wType)) wType = "easy"
     return { dayIdx, type: wType, ratio: dayCount > 0 ? otherRatio / dayCount : 0 }
   })
@@ -456,11 +563,17 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
   const weeklyKm = generateWeeklyKm(input)
   const weeks: GeneratedWeek[] = []
   const zones = input.age ? calcHRZones(input.age) : undefined
-  const isTrail = input.targetDistance === "trail"
+  const isTrail = isTrailDistance(input.targetDistance)
+  const ap = { ...DEFAULT_ALGORITHM_PARAMS, ...(input.formula?.algorithmParams ?? {}) }
+
+  // Race elevation gain density (m/km) — drives hill/power-hike emphasis + notes.
+  const config = DISTANCE_CONFIGS[input.targetDistance]
+  const raceGain = input.elevationGain ?? input.formula?.defaultGain ?? config.defaultGain
+  const gainDensity = config.km > 0 ? raceGain / config.km : 0
 
   for (let i = 0; i < input.trainingWeeks; i++) {
     const weekNum = i + 1
-    const phase = getPhase(weekNum, input.trainingWeeks)
+    const phase = getPhase(weekNum, input.trainingWeeks, ap)
     const phaseName = getPhaseName(phase)
     const totalKm = weeklyKm[i]
 
@@ -476,7 +589,7 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
     const daySlots = assignDaySlots(
       trainingDays, longRunDay, input.daysPerWeek,
       weekNum, input.trainingWeeks, phase, input.targetDistance,
-      input.formula?.phasePatterns, input.formula?.algorithmParams
+      input.formula?.phasePatterns, input.formula?.algorithmParams, gainDensity
     )
 
     const days: GeneratedDay[] = daySlots.map((slot) => {
@@ -488,10 +601,16 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
           description: buildDescription("rest", 0, "N/A"),
           rpe: 0,
           notes: getNotes("rest", phase, weekNum, zones, isTrail),
+          elevationGain: 0,
         }
       }
       const distance = Math.max(2, Math.round(totalKm * slot.ratio * 10) / 10)
       const pace = paces[slot.type] ?? paces.easy
+      // Per-session climb (D+): trail only; scales with race gain density and phase specificity.
+      const elevationGain =
+        isTrail && gainDensity > 0 && slot.type !== "cross_train"
+          ? Math.round(distance * gainDensity * VERT_SPECIFICITY[phase])
+          : 0
       return {
         type: slot.type,
         distance,
@@ -499,10 +618,12 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
         description: buildDescription(slot.type, distance, pace),
         rpe: getRpe(slot.type, phase),
         notes: getNotes(slot.type, phase, weekNum, zones, isTrail),
+        elevationGain,
       }
     })
 
-    weeks.push({ weekNumber: weekNum, phase: phaseName, totalKm, days })
+    const weekElevation = days.reduce((s, d) => s + d.elevationGain, 0)
+    weeks.push({ weekNumber: weekNum, phase: phaseName, totalKm, elevationGain: weekElevation, days })
   }
 
   const projected = getProjectedTime(input)

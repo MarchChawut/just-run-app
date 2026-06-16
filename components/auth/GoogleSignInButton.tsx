@@ -12,33 +12,42 @@ function detectWebView(): boolean {
 }
 
 export function GoogleSignInButton() {
-  const [isWebView, setIsWebView] = useState(false)
+  const [isWebView, setIsWebView] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setIsWebView(detectWebView())
   }, [])
 
+  // Render nothing until client-side detection completes (avoids flash of Google button in WebView)
+  if (isWebView === null) return <div className="h-12" />
+
   if (isWebView) {
     const handleCopy = async () => {
+      const url = window.location.href
       try {
-        await navigator.clipboard.writeText(window.location.href)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2500)
+        await navigator.clipboard.writeText(url)
       } catch {
-        // fallback: select from input
+        // execCommand fallback for WebViews that block Clipboard API
+        const el = document.createElement("textarea")
+        el.value = url
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand("copy")
+        document.body.removeChild(el)
       }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
     }
 
     const handleOpenChrome = () => {
       const url = window.location.href
       const ua = navigator.userAgent
       if (/iPhone|iPad|iPod/.test(ua)) {
-        // iOS: try Chrome, fallback to Safari
-        window.location.href = url.replace(/^https?/, "googlechrome")
-        setTimeout(() => { window.location.href = url.replace(/^https?/, "x-web-search") }, 500)
+        // iOS Chrome uses googlechromes:// for HTTPS, googlechrome:// for HTTP
+        window.location.href = url.replace(/^https:/, "googlechromes:").replace(/^http:/, "googlechrome:")
       } else {
-        // Android intent
+        // Android intent — opens Chrome if installed, shows chooser otherwise
         window.location.href = `intent://${url.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`
       }
     }

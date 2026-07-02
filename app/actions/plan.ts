@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { createPlanWizardSchema, type CreatePlanWizardInput } from "@/lib/validations"
-import { generatePlan, DISTANCE_CONFIGS } from "@/lib/trainingEngine"
+import { generatePlan, buildLeadInWeek, DISTANCE_CONFIGS } from "@/lib/trainingEngine"
+import { findTemplate } from "@/lib/planTemplates"
 import { loadFormula } from "@/lib/formulaLoader"
+import { TARGET_DISTANCE_LABELS, EXPERIENCE_LEVEL_LABELS } from "@/types"
 import { logActivity } from "@/lib/activityLogger"
 import type { TargetDistance } from "@/types"
 
@@ -22,9 +24,45 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
 
   if (race <= start) return { error: "วันแข่งต้องหลังวันเริ่มซ้อม" }
 
-  // Clamp training weeks to distance config bounds
-  const config = DISTANCE_CONFIGS[data.targetDistance as TargetDistance]
-  const trainingWeeks = Math.max(config.minWeeks, Math.min(config.maxWeeks, data.trainingWeeks))
+  const msPerWeek = 7 * 86400 * 1000
+
+  // ── Partial first week rule ──
+  // The plan begins on the user's chosen start date (never back-anchored). But
+  // if that date falls mid-week and fewer than 3 training days remain in the
+  // calendar week, that partial week doesn't count as a training week — it
+  // becomes an uncounted lead-in week (สัปดาห์เกริ่นนำ) of easy runs, and the
+  // numbered training weeks 1..N start the following week. Reserve one calendar
+  // week for the lead-in so the training-week math and the race window stay honest.
+  const startDow = start.getDay()
+  const remainingTrainingDays = data.trainingDays.filter((d) => d >= startDow).length
+  const leadInWeeks = remainingTrainingDays < 3 ? 1 : 0
+
+  // Template-backed formula? The template is the *max* length (e.g. 22 weeks).
+  // Honor the user's start date and fit the longest plan that lands on/before
+  // the race (minus any lead-in week), capped at the template length and floored
+  // at a sport-science minimum (16 weeks for a full marathon). Shorter plans keep
+  // the race-specific back half and drop early base weeks (buildPlanFromTemplate).
+  const template = findTemplate(data.targetDistance, data.level, data.trainingGoal)
+  let trainingWeeks: number
+  if (template) {
+    const MIN_TEMPLATE_WEEKS = 16
+    const availableWeeks = Math.floor((race.getTime() - start.getTime()) / msPerWeek) - leadInWeeks
+    if (availableWeeks < MIN_TEMPLATE_WEEKS) {
+      return {
+        error: `แผน ${EXPERIENCE_LEVEL_LABELS[data.level]} · ${TARGET_DISTANCE_LABELS[data.targetDistance as TargetDistance]} ต้องเริ่มซ้อมอย่างน้อย ${MIN_TEMPLATE_WEEKS} สัปดาห์ก่อนวันแข่ง — กรุณาเลือกวันแข่งที่ไกลออกไป`,
+      }
+    }
+    trainingWeeks = Math.min(template.weeks, availableWeeks)
+  } else {
+    // Clamp training weeks to distance config bounds. Beginners get a 16-week
+    // floor where the distance allows it (short races stay capped at maxWeeks).
+    const config = DISTANCE_CONFIGS[data.targetDistance as TargetDistance]
+    const minWeeks =
+      data.level === "beginner"
+        ? Math.min(config.maxWeeks, Math.max(16, config.minWeeks))
+        : config.minWeeks
+    trainingWeeks = Math.max(minWeeks, Math.min(config.maxWeeks, data.trainingWeeks))
+  }
 
   // Load formula config + runner profile in parallel
   const [formula, existingProfile] = await Promise.all([
@@ -38,6 +76,8 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
   // Generate the plan
   const engineInput = {
     targetDistance: data.targetDistance as TargetDistance,
+    level: data.level,
+    trainingGoal: data.trainingGoal,
     trainingWeeks,
     daysPerWeek: data.daysPerWeek,
     trainingDays: data.trainingDays,
@@ -55,6 +95,16 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
 
   const generatedPlan = generatePlan(engineInput)
 
+  // Prepend the uncounted lead-in week when the first calendar week is partial.
+  // trainingWeeks stays N (the lead-in is week 0, not counted); the calendar maps
+  // it into the start week by array position.
+  if (leadInWeeks && generatedPlan.weeks.length > 0) {
+    generatedPlan.weeks = [
+      buildLeadInWeek(engineInput, startDow, generatedPlan.weeks[0]),
+      ...generatedPlan.weeks,
+    ]
+  }
+
   let plan
   try {
     plan = await prisma.trainingPlan.create({
@@ -62,6 +112,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
         userId: session.user.id,
         name: data.name,
         targetDistance: data.targetDistance,
+        level: data.level,
         startDate: start,
         raceDate: race,
         trainingWeeks,
@@ -82,6 +133,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
     create: {
       userId: session.user.id,
       targetDistance: data.targetDistance,
+      level: data.level,
       daysPerWeek: data.daysPerWeek,
       trainingDays: JSON.stringify(data.trainingDays),
       longRunDay: data.longRunDay,
@@ -100,6 +152,7 @@ export async function createPlanFromWizard(input: CreatePlanWizardInput) {
     },
     update: {
       targetDistance: data.targetDistance,
+      level: data.level,
       daysPerWeek: data.daysPerWeek,
       trainingDays: JSON.stringify(data.trainingDays),
       longRunDay: data.longRunDay,

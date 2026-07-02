@@ -35,20 +35,24 @@ type PlanDay = {
   phaseName: string
 }
 
-// Build flat list of all plan days with actual dates
+// Build flat list of all plan days with actual dates.
+// Calendar position is derived from the ARRAY INDEX (wi), not week.weekNumber, so
+// an uncounted lead-in week (weekNumber 0, array index 0) lands in the start week
+// and training weeks 1..N follow. For plans without a lead-in, wi+1 === weekNumber,
+// so existing plans map identically.
 function buildPlanDays(planData: GeneratedPlan, startDate: Date): PlanDay[] {
   const result: PlanDay[] = []
-  for (const week of planData.weeks) {
+  planData.weeks.forEach((week, wi) => {
     for (let di = 0; di < week.days.length; di++) {
       result.push({
-        date: dayDate(startDate, week.weekNumber, di),
+        date: dayDate(startDate, wi + 1, di),
         weekNumber: week.weekNumber,
         dayIndex: di,
         day: week.days[di],
         phaseName: week.phase,
       })
     }
-  }
+  })
   return result
 }
 

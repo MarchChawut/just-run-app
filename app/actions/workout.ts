@@ -8,7 +8,7 @@ import { z } from "zod"
 
 const completionSchema = z.object({
   planId: z.string().min(1),
-  weekNumber: z.number().int().min(1),
+  weekNumber: z.number().int().min(0), // 0 = uncounted lead-in week
   dayIndex: z.number().int().min(0).max(6),
   completion: z.number().int().min(0).max(100),
   note: z.string().max(500).optional(),

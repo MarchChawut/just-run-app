@@ -1,4 +1,5 @@
 import type { WorkoutType } from "@/types"
+import type { TemplateWorkout, TemplatePace } from "@/lib/planTemplates"
 
 export type StepActivity = "RUN" | "REST" | "WALK"
 
@@ -529,4 +530,170 @@ export function generateWorkoutSteps(
     case "rest":      return buildRest()
     default:          return buildEasy(distance, easy, false)
   }
+}
+
+// ─── Template (store-and-replay) step builder ────────────────────────────────
+//
+// Renders a template workout verbatim to match the source Excel — used only by
+// buildPlanFromTemplate, which stores the result in GeneratedDay.detail so the
+// UI replays it instead of regenerating from type+pace. Emits both outdoor and
+// (where applicable) treadmill variants; the sheet picks by the run-mode toggle.
+
+/** km/h from seconds/km, 1 decimal. 7:10 → 8.4, 5:50 → 10.3, 6:10 → 9.7 */
+function kph(sec: number): number {
+  return Math.round((3600 / sec) * 10) / 10
+}
+
+/** "target/km  |  Range lo–hi/km" from a TemplatePace (pace mode). */
+function paceRangeNote(p: TemplatePace): string {
+  const t = `${fmtPace(p.target)}/km`
+  return p.rangeLo && p.rangeHi
+    ? `เป้า ~${t}  |  ช่วง ${fmtPace(p.rangeLo)}–${fmtPace(p.rangeHi)}/km`
+    : t
+}
+
+/** "target kph  |  Range lo–hi kph" from a TemplatePace (treadmill mode). */
+function kphRangeNote(p: TemplatePace): string {
+  const t = `${kph(p.target)} kph`
+  // Note: faster pace (smaller sec) = higher kph, so lo/hi swap.
+  return p.rangeLo && p.rangeHi
+    ? `เป้า ~${t}  |  ช่วง ${kph(p.rangeHi)}–${kph(p.rangeLo)} kph`
+    : t
+}
+
+function tmEasyWarmupSection(easy: TemplatePace, treadmill: boolean, wu: number, id: number, label = "Warm-Up", key = "warmup"): WorkoutSection {
+  const paceNote = treadmill
+    ? `ไม่เกิน ${kph(easy.target)} kph — สบาย คุยได้`
+    : `ไม่เกิน ${fmtPace(easy.target)}/km — สบาย คุยได้`
+  return {
+    key, label, type: "warmup", color: "#4af0ff",
+    steps: [{ id, activity: "RUN", description: `วิ่ง Easy อบอุ่นร่างกาย`, distance: `${wu.toFixed(2).replace(/\.?0+$/, "")} km`, pace: fmtPace(easy.target), paceNote }],
+  }
+}
+
+function tmEasyLike(w: TemplateWorkout, p: TemplatePace, treadmill: boolean, label: string): WorkoutSection[] {
+  const d = w.distanceKm.toFixed(1).replace(/\.0$/, "")
+  const limit = treadmill ? `${kph(p.target)} kph` : `${fmtPace(p.target)}/km`
+  const notes: string[] = [`ไม่เกิน ${limit}`, "เป็นเพดาน ไม่ใช่เป้า — วิ่งช้ากว่าได้ตามสบาย"]
+  if (w.rollingTerrain) {
+    notes.unshift(treadmill ? "ตั้งความชัน 1–2% จำลองทางลูกเนิน" : "พื้นที่: ทางลูกเนิน (ระดับความสูงหลากหลาย)")
+  }
+  return [{
+    key: "main", label, type: "main", color: label.startsWith("Long") ? "#e8ff4a" : "#4af0ff",
+    steps: [{ id: 1, activity: "RUN", description: `${label} — วิ่งสบาย คุยได้ตลอด`, distance: `${d} km`, pace: fmtPace(p.target), paceNote: notes.join(" · ") }],
+    coachNote: "วิ่งที่ความรู้สึกสบายจริงๆ — ไม่มีเร็วเกินไป มีแต่ช้าเกินไปไม่มี",
+  }]
+}
+
+function tmTempo(w: TemplateWorkout, p: TemplatePace, treadmill: boolean): WorkoutSection[] {
+  const d = w.distanceKm.toFixed(1).replace(/\.0$/, "")
+  return [{
+    key: "main", label: "Tempo Run", type: "main", color: "#ff9f4a",
+    steps: [{
+      id: 1, activity: "RUN",
+      description: "Comfortably Hard — พูดได้ทีละวลีสั้นๆ ไม่ใช่ประโยคเต็ม",
+      distance: `${d} km`, pace: fmtPace(p.target),
+      paceNote: treadmill ? kphRangeNote(p) : paceRangeNote(p),
+    }],
+    coachNote: "รักษาเพซให้คงที่ตลอด อย่าออกตัวเร็วเกินช่วงแรก",
+  }]
+}
+
+function tmInterval(w: TemplateWorkout, easy: TemplatePace, rep: TemplatePace, treadmill: boolean): WorkoutSection[] {
+  const reps = w.reps ?? 2
+  const repKm = w.repKm ?? 1.0
+  const wu = Math.max(0.5, Math.round(((w.distanceKm - reps * repKm) / 2) * 100) / 100)
+  const repLabel = repKm === 1 ? "1km" : `${repKm}km`
+  const repPaceNote = treadmill ? kphRangeNote(rep) : paceRangeNote(rep)
+  return [
+    tmEasyWarmupSection(easy, treadmill, wu, 1),
+    {
+      key: "repeat",
+      label: `Repeat ×${reps}${w.racePrep ? " (เบาลง — เตรียมแข่ง)" : ""}`,
+      type: "repeat", color: "#ff4a4a", repeatCount: reps,
+      steps: [
+        { id: 2, activity: "RUN", description: `${repLabel} at effort`, distance: repLabel, pace: fmtPace(rep.target), paceNote: repPaceNote },
+        { id: 3, activity: "WALK", description: "พักเดิน", duration: "90 วินาที", paceNote: "เดินเบาๆ ให้หายใจกลับมาพร้อม rep ต่อไป" },
+      ],
+      coachNote: w.racePrep ? "สัปดาห์แข่ง — ทำเบาๆ กระตุ้นขาเฉยๆ อย่าฝืน" : "ทุก rep ควรรู้สึกหนักเท่ากัน ถ้า rep หลังช้าลงมากให้หยุด",
+    },
+    {
+      key: "cooldown", label: "Cool Down", type: "cooldown", color: "#4af0ff",
+      steps: [{ id: 4, activity: "RUN", description: "วิ่ง Easy ช้าๆ (หรือช้ากว่านั้น)", distance: `${wu.toFixed(2).replace(/\.?0+$/, "")} km`, pace: fmtPace(easy.target), paceNote: treadmill ? `≤ ${kph(easy.target)} kph` : `≤ ${fmtPace(easy.target)}/km` }],
+    },
+  ]
+}
+
+function tmHills(w: TemplateWorkout, easy: TemplatePace, treadmill: boolean): WorkoutSection[] {
+  const gradeNote = treadmill ? "ตั้งความชัน 4–6%" : "หาเนินระดับปานกลาง (ความชัน 4–6%)"
+  return [
+    tmEasyWarmupSection(easy, treadmill, 1, 1),
+    {
+      key: "repeat", label: "Hill Repeats ×6–8", type: "repeat", color: "#ff8c4a",
+      steps: treadmill
+        ? [
+            { id: 2, activity: "RUN", description: "วิ่งหนัก 1–2 นาที", paceNote: "Effort สูง form ดี" },
+            { id: 3, activity: "RUN", description: "ฟื้นตัวที่ความชัน 0% 2 นาที", paceNote: "ผ่อน 6–8 รอบภายในระยะรวม" },
+          ]
+        : [
+            { id: 2, activity: "RUN", description: "วิ่งขึ้นเนินหนัก", paceNote: "Effort สูง form ดี อย่าก้มหลัง" },
+            { id: 3, activity: "WALK", description: "จ๊อกลงเนิน (recovery)", paceNote: "6–8 รอบภายในระยะรวม" },
+          ],
+      coachNote: `${gradeNote} · Hill repeats สร้าง power และความแข็งแรง ขึ้นด้วย effort ลงด้วยความระวัง`,
+    },
+    {
+      key: "cooldown", label: "Cool Down", type: "cooldown", color: "#4af0ff",
+      steps: [{ id: 4, activity: "RUN", description: "วิ่ง Easy ช้าๆ ~1km", distance: "~1 km", pace: fmtPace(easy.target), paceNote: treadmill ? `≤ ${kph(easy.target)} kph` : `≤ ${fmtPace(easy.target)}/km` }],
+    },
+  ]
+}
+
+function tmRace(w: TemplateWorkout, race: TemplatePace): WorkoutSection[] {
+  return [{
+    key: "main", label: "🏁 RACE DAY", type: "main", color: "#e8ff4a",
+    steps: [{
+      id: 1, activity: "RUN",
+      description: `Full Marathon ${w.distanceKm} km`,
+      pace: fmtPace(race.target),
+      paceNote: race.rangeLo && race.rangeHi
+        ? `เพซเป้าหมาย ~${fmtPace(race.rangeLo)}–${fmtPace(race.rangeHi)}/km — ออกตัวช้าไว้ก่อน negative split ถ้าทำได้`
+        : `เพซเป้าหมาย ~${fmtPace(race.target)}/km`,
+    }],
+    coachNote: "วันแข่ง — วิ่งกลางแจ้งที่สนามจริง (ไม่มี treadmill substitute)",
+  }]
+}
+
+/**
+ * Build the exact outdoor + treadmill steps for a template workout, for storage
+ * in GeneratedDay.detail. Returns undefined for a workout with no template pace
+ * (caller falls back to generateWorkoutSteps).
+ */
+export function buildTemplateWorkoutSteps(
+  w: TemplateWorkout,
+  paces: Partial<Record<WorkoutType, TemplatePace>>,
+): { outdoor: WorkoutSection[]; treadmill?: WorkoutSection[] } | undefined {
+  const easy = paces.easy
+  const build = (treadmill: boolean): WorkoutSection[] | undefined => {
+    switch (w.type) {
+      case "easy":
+        return easy ? tmEasyLike(w, paces.easy!, treadmill, "Easy Run") : undefined
+      case "long":
+        return paces.long ? tmEasyLike(w, paces.long, treadmill, "Long Run") : undefined
+      case "tempo":
+        return paces.tempo ? tmTempo(w, paces.tempo, treadmill) : undefined
+      case "interval":
+        return easy && paces.interval ? tmInterval(w, easy, paces.interval, treadmill) : undefined
+      case "hills":
+        return easy ? tmHills(w, easy, treadmill) : undefined
+      case "race_pace":
+        return paces.race_pace ? tmRace(w, paces.race_pace) : undefined
+      default:
+        return undefined
+    }
+  }
+  const outdoor = build(false)
+  if (!outdoor) return undefined
+  // Race has no treadmill substitute.
+  const treadmill = w.isRace ? undefined : build(true)
+  return { outdoor, treadmill }
 }

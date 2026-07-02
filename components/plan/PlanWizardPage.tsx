@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createPlanFromWizard } from "@/app/actions/plan"
 import { DISTANCE_CONFIGS, getDefaultTrainingDays, isTrailDistance, normalizeDistance } from "@/lib/trainingEngine"
-import { TARGET_DISTANCE_LABELS } from "@/types"
-import type { TargetDistance, WizardFormState, RunnerProfile } from "@/types"
+import { findTemplate } from "@/lib/planTemplates"
+import { TARGET_DISTANCE_LABELS, EXPERIENCE_LEVEL_LABELS, TRAINING_GOAL_LABELS } from "@/types"
+import type { TargetDistance, WizardFormState, RunnerProfile, ExperienceLevel } from "@/types"
 
 const DAYS_TH = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
 const STEP_LABELS = ["ระยะ", "วันที่", "ตาราง", "ฟิตเนส", "โปรแกรม", "สรุป"]
@@ -21,6 +22,12 @@ const INTENSITY_OPTIONS = [
   { value: "elite", label: "Elite", desc: "โปรแกรมหนักสำหรับนักวิ่งขั้นสูง", color: "#ff4a4a" },
 ] as const
 
+const LEVEL_OPTIONS = [
+  { value: "beginner", label: "Beginner", desc: "มือใหม่ / เพิ่งเริ่มซ้อมจริงจัง", color: "#4af0ff" },
+  { value: "intermediate", label: "Intermediate", desc: "ซ้อมสม่ำเสมอ มีพื้นฐาน", color: "#e8ff4a" },
+  { value: "advanced", label: "Advanced", desc: "นักวิ่งขั้นสูง เคยแข่งหลายรายการ", color: "#ff9f4a" },
+] as const
+
 function defaultState(profile: RunnerProfile | null): WizardFormState {
   let trainingDays: number[] = []
   try {
@@ -31,6 +38,8 @@ function defaultState(profile: RunnerProfile | null): WizardFormState {
     : ""
   return {
     targetDistance: initialDistance,
+    level: (profile?.level as ExperienceLevel) ?? "beginner",
+    trainingGoal: "performance",
     elevationGain:
       profile?.elevationGain ??
       (initialDistance ? DISTANCE_CONFIGS[initialDistance].defaultGain : 0),
@@ -67,6 +76,32 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
   const [gainTouched, setGainTouched] = useState(false)
 
   const update = (patch: Partial<WizardFormState>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  // Template-backed formula (exact static plan) for the current distance × level.
+  // When present it FIXES the plan length / days-per-week and ignores PR + intensity;
+  // the server action is the source of truth: it honors the chosen start date and
+  // fits the plan length to the window (16 → template.weeks). Here we only reflect
+  // that in the UI so the summary isn't misleading.
+  const template = form.targetDistance
+    ? findTemplate(form.targetDistance as TargetDistance, form.level, form.trainingGoal)
+    : undefined
+  const templateActive = !!template
+  // Show the training-goal toggle when this distance × level has an endurance
+  // variant to switch to (i.e. more than just the default performance plan).
+  const hasGoalChoice = !!form.targetDistance &&
+    !!findTemplate(form.targetDistance as TargetDistance, form.level, "endurance")
+  const TEMPLATE_MIN_WEEKS = 16
+  // Available window (weeks) between chosen start and race dates.
+  const availableWeeks =
+    form.startDate && form.raceDate
+      ? Math.floor((new Date(form.raceDate).getTime() - new Date(form.startDate).getTime()) / (7 * 86400 * 1000))
+      : 0
+  // Template plans adapt to the window: min 16, capped at the template length.
+  const templateWeeksTooShort = templateActive && availableWeeks < TEMPLATE_MIN_WEEKS
+  const effectiveWeeks = template
+    ? Math.min(template.weeks, Math.max(TEMPLATE_MIN_WEEKS, availableWeeks))
+    : form.trainingWeeks
+  const effectiveDays = template?.daysPerWeek ?? form.daysPerWeek
 
   // Compute training weeks from dates
   const computeWeeks = (start: string, race: string, dist: TargetDistance) => {
@@ -131,6 +166,8 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
       const result = await createPlanFromWizard({
         name: planName,
         targetDistance: form.targetDistance as TargetDistance,
+        level: form.level,
+        trainingGoal: form.trainingGoal,
         startDate: form.startDate,
         raceDate: form.raceDate,
         trainingWeeks: form.trainingWeeks,
@@ -583,10 +620,84 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
           {step === 4 && (
             <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-white">ความเข้มข้นและพื้นสนาม</h2>
+                <h2 className="text-xl font-bold text-white">ระดับและความเข้มข้น</h2>
               </div>
 
-              {/* Intensity */}
+              {/* Experience level */}
+              <div className="space-y-2">
+                <Label>ระดับความชำนาญ</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {LEVEL_OPTIONS.map((opt) => {
+                    const isSelected = form.level === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => update({ level: opt.value })}
+                        className="text-left p-3 rounded-xl border transition-all"
+                        style={{
+                          background: isSelected ? `${opt.color}10` : "rgba(255,255,255,0.03)",
+                          borderColor: isSelected ? opt.color : "rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        <div className="font-semibold text-sm" style={{ color: isSelected ? opt.color : "#ccc" }}>
+                          {opt.label}
+                        </div>
+                        <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "#666" }}>{opt.desc}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Training goal — only when this distance × level has an endurance variant */}
+              {hasGoalChoice && (
+                <div className="space-y-2">
+                  <Label>เป้าหมายการซ้อม</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      { value: "performance" as const, label: "เน้นเวลา/ความเร็ว", desc: "เพซเร็ว เก็บ interval/tempo เต็มที่ · เป้าหมายทำเวลา" },
+                      { value: "endurance" as const, label: "เน้นจบปลอดภัย", desc: "เพซสบาย ~8:30 · มี Cross-training ถนอมเข่า · ไม่เน้นความเร็ว" },
+                    ]).map((opt) => {
+                      const isSelected = form.trainingGoal === opt.value
+                      const color = "#4af08c"
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => update({ trainingGoal: opt.value })}
+                          className="text-left p-3 rounded-xl border transition-all"
+                          style={{
+                            background: isSelected ? `${color}12` : "rgba(255,255,255,0.03)",
+                            borderColor: isSelected ? color : "rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <div className="font-semibold text-sm" style={{ color: isSelected ? color : "#ccc" }}>{opt.label}</div>
+                          <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "#666" }}>{opt.desc}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Template-backed formula note — this combo uses a pre-designed plan */}
+              {templateActive && (
+                templateWeeksTooShort ? (
+                  <div className="rounded-lg p-3 text-xs" style={{ background: "rgba(255,74,74,0.08)", border: "1px solid rgba(255,74,74,0.3)", color: "#ff6666" }}>
+                    ⚠️ ช่วงเวลาถึงวันแข่งสั้นเกินไป ({availableWeeks} สัปดาห์) — สูตร {TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]}
+                    ต้องมีอย่างน้อย {TEMPLATE_MIN_WEEKS} สัปดาห์ตามหลักวิทยาศาสตร์การกีฬา · กรุณาเลือกวันแข่งที่ไกลออกไป
+                  </div>
+                ) : (
+                  <div className="rounded-lg p-3 text-xs" style={{ background: "rgba(74,240,255,0.06)", border: "1px solid rgba(74,240,255,0.25)", color: "#4af0ff" }}>
+                    📋 สูตร {EXPERIENCE_LEVEL_LABELS[form.level]} · {TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]} เป็นแผนสำเร็จรูป —
+                    ปรับความยาวได้ {TEMPLATE_MIN_WEEKS}–{template.weeks} สัปดาห์ตามช่วงถึงวันแข่ง (ตอนนี้ {effectiveWeeks} สัปดาห์) · {effectiveDays} วัน/สัปดาห์ ·
+                    เพซตามสูตร · ปรับได้ตามระดับความเข้มข้น · ไม่ใช้ PR · เริ่มซ้อมตามวันที่เลือก · ถ้าสัปดาห์แรกมีวันวิ่งไม่ถึง 3 วันจะเก็บเป็นสัปดาห์เกริ่นนำ ไม่นับเป็นสัปดาห์ซ้อม
+                  </div>
+                )
+              )}
+
+              {/* Intensity — applies to template plans too (scales paces + projected time) */}
               <div className="space-y-2">
                 <Label>ระดับความเข้มข้น</Label>
                 <div className="grid grid-cols-2 gap-3">
@@ -690,10 +801,12 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[
                   { label: "ระยะทาง", value: `${DISTANCE_CONFIGS[form.targetDistance as TargetDistance].icon} ${TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]}` },
-                  { label: "จำนวนสัปดาห์", value: `${form.trainingWeeks} สัปดาห์` },
+                  { label: "ระดับ", value: EXPERIENCE_LEVEL_LABELS[form.level] },
+                  ...(hasGoalChoice ? [{ label: "เป้าหมาย", value: TRAINING_GOAL_LABELS[form.trainingGoal] }] : []),
+                  { label: "จำนวนสัปดาห์", value: `${effectiveWeeks} สัปดาห์${templateActive ? " (ปรับตามวันแข่ง)" : ""}` },
                   { label: "วันเริ่ม", value: form.startDate ? new Date(form.startDate).toLocaleDateString("th-TH") : "—" },
                   { label: "วันแข่ง", value: form.raceDate ? new Date(form.raceDate).toLocaleDateString("th-TH") : "—" },
-                  { label: "วันซ้อม/สัปดาห์", value: `${form.daysPerWeek} วัน (${form.trainingDays.map((d) => DAYS_TH[d]).join(", ")})` },
+                  { label: "วันซ้อม/สัปดาห์", value: `${effectiveDays} วัน (${form.trainingDays.map((d) => DAYS_TH[d]).join(", ")})` },
                   { label: "Long Run", value: `วัน${DAYS_TH[form.longRunDay]}` },
                   { label: "ความเข้มข้น", value: { gentle: "ผ่อนคลาย", normal: "ปกติ", challenging: "ท้าทาย", elite: "Elite" }[form.intensity] },
                   { label: "พื้นสนาม", value: form.terrainType },
@@ -733,8 +846,8 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
             ) : (
               <Button
                 onClick={handleSubmit}
-                disabled={isPending}
-                style={{ background: "#e8ff4a", color: "#0a0a0f", fontWeight: 600, minWidth: 120 }}
+                disabled={isPending || templateWeeksTooShort}
+                style={{ background: templateWeeksTooShort ? "rgba(255,255,255,0.1)" : "#e8ff4a", color: templateWeeksTooShort ? "#444" : "#0a0a0f", fontWeight: 600, minWidth: 120 }}
               >
                 {isPending ? "กำลังสร้างแผน..." : "สร้างแผน 🏃"}
               </Button>

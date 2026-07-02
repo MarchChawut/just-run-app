@@ -10,6 +10,7 @@ import { z } from "zod"
 const profileSchema = z.object({
   age: z.coerce.number().int().min(10).max(100).optional(),
   targetDistance: z.enum(TARGET_DISTANCE_VALUES),
+  level: z.enum(["beginner", "intermediate", "advanced"]).default("beginner"),
   daysPerWeek: z.coerce.number().int().min(2).max(7).default(4),
   trainingDays: z.string().default("[]"),
   longRunDay: z.coerce.number().int().min(0).max(6).default(6),

@@ -70,6 +70,7 @@ model RunnerProfile {
 
   age            Int?
   targetDistance String
+  level          String  @default("beginner") // "beginner"|"intermediate"|"advanced"
   daysPerWeek    Int     @default(4)
   trainingDays   String
   longRunDay     Int     @default(6)
@@ -104,6 +105,7 @@ model TrainingPlan {
 
   name           String   @default("แผนซ้อมวิ่ง")
   targetDistance String
+  level          String   @default("beginner") // "beginner"|"intermediate"|"advanced"
   startDate      DateTime
   raceDate       DateTime
   trainingWeeks  Int

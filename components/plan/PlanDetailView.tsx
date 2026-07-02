@@ -123,7 +123,7 @@ function WeekCard({
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold" style={{ color: "#ccc" }}>สัปดาห์ {week.weekNumber}</span>
+            <span className="text-sm font-bold" style={{ color: "#ccc" }}>{week.isLeadIn ? "เกริ่นนำ" : `สัปดาห์ ${week.weekNumber}`}</span>
             <span
               className="text-xs px-2 py-0.5 rounded-full font-medium"
               style={{ background: `${color}18`, color, border: `1px solid ${color}30` }}
@@ -192,8 +192,10 @@ function MonthlyKmChart({ weeks, startDate }: { weeks: GeneratedWeek[]; startDat
   type MonthBucket = { label: string; km: number; color: string }
   const buckets: MonthBucket[] = []
 
-  for (const week of weeks) {
-    const weekDate = new Date(startDate.getTime() + (week.weekNumber - 1) * 7 * 86400 * 1000)
+  weeks.forEach((week, wi) => {
+    // Bucket by calendar position (array index), so a lead-in week (weekNumber 0)
+    // still lands in the correct month.
+    const weekDate = new Date(startDate.getTime() + wi * 7 * 86400 * 1000)
     const label = weekDate.toLocaleDateString("th-TH", { month: "long", year: "numeric" })
     const existing = buckets.find((b) => b.label === label)
     if (existing) {
@@ -201,7 +203,7 @@ function MonthlyKmChart({ weeks, startDate }: { weeks: GeneratedWeek[]; startDat
     } else {
       buckets.push({ label, km: week.totalKm, color: phaseColor(week.phase) })
     }
-  }
+  })
 
   const maxKm = Math.max(...buckets.map((b) => b.km), 1)
 

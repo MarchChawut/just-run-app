@@ -50,8 +50,12 @@ just-run-app/
 │   └── ui/                          shadcn/ui auto-generated components (do not edit)
 │
 ├── lib/
-│   ├── trainingEngine.ts    CORE — generates the full training plan
+│   ├── trainingEngine.ts    CORE — generates the full training plan (parametric OR template-backed)
+│   ├── planTemplates.ts     Static hand-designed plans replayed verbatim (findTemplate)
 │   ├── workoutSteps.ts      Workout step-by-step definitions (warm-up, main, cool-down)
+│   ├── formulaLoader.ts     Loads formula config (multipliers + algorithm params) per plan
+│   ├── formulaDefaults.ts   DEFAULT_MULTIPLIERS + DEFAULT_ALGORITHM_PARAMS fallbacks
+│   ├── activityLogger.ts    Records user activity events (logActivity)
 │   ├── hrZones.ts           HR zone calculator (Tanaka formula: 208 − 0.7 × age)
 │   ├── mealData.ts          Meal recommendations by workout type
 │   ├── validations.ts       Zod schemas for all server action inputs
@@ -72,15 +76,22 @@ just-run-app/
 ```
 User fills wizard (PlanWizardPage)
   └─▶ createPlanFromWizard (app/actions/plan.ts)
-        ├─ validates with createPlanWizardSchema (Zod)
+        ├─ validates with createPlanWizardSchema (Zod: + level, trainingGoal)
         ├─ reads age from RunnerProfile (for HR zones)
+        ├─ computes leadInWeeks — if start is mid-week and <3 training days
+        │    remain in that first calendar week → 1 uncounted lead-in week
         ├─▶ generatePlan(input) → lib/trainingEngine.ts
-        │     ├─ calculatePaces()  — derives pace zones from PR data
-        │     ├─ generateWeeklyKm() — weekly km progression (base→build→peak→taper)
-        │     ├─ assignDaySlots()  — assigns workout types per day
+        │     ├─ findTemplate(distance, level, trainingGoal) → lib/planTemplates.ts
+        │     │     ├─ MATCH  → buildPlanFromTemplate() — exact week-by-week replay
+        │     │     │            (intensity scales paces + finish time; distances fixed)
+        │     │     └─ NO MATCH → parametric path:
+        │     │            ├─ calculatePaces()   — derives pace zones from PR data
+        │     │            ├─ generateWeeklyKm()  — weekly km (base→build→peak→taper)
+        │     │            └─ assignDaySlots()    — assigns workout types per day
         │     └─ returns GeneratedPlan { weeks[], projectedFinishTime, improvementRange }
-        ├─ stores plan as JSON in TrainingPlan.planData (MariaDB)
-        └─ upserts RunnerProfile with wizard settings
+        ├─ if leadInWeeks: prepends buildLeadInWeek() as week 0 (isLeadIn)
+        ├─ stores plan as JSON in TrainingPlan.planData (MariaDB) + level column
+        └─ upserts RunnerProfile with wizard settings (incl. level)
 
 User views plan (/plan/[id])
   └─▶ PlanCalendarView
@@ -101,7 +112,9 @@ User marks workout done
 | Export | Purpose |
 |---|---|
 | `DISTANCE_CONFIGS` | Config per target distance (km, min/maxWeeks, base/peakKm, longRunMax) |
-| `generatePlan(input)` | **Main entry point** — returns `GeneratedPlan` |
+| `generatePlan(input)` | **Main entry point** — template-backed if `findTemplate()` matches, else parametric; returns `GeneratedPlan` |
+| `buildPlanFromTemplate(template, input)` | Replays a static template verbatim; intensity scales paces + finish time; compresses short windows by dropping early base weeks |
+| `buildLeadInWeek(input, startDow, firstWeek)` | Builds the uncounted lead-in week (`weekNumber: 0`, `isLeadIn: true`, phase `"เกริ่นนำ"`) for a mid-week start |
 | `calculatePaces(input)` | Derives `Record<WorkoutType, string>` pace zones from PR data |
 | `generateWeeklyKm(input)` | Weekly km array: base → build → peak → taper progression |
 | `assignDaySlots(...)` | Assigns `WorkoutType` to each training day slot |
@@ -152,11 +165,33 @@ Recovery weeks (every 4th in build, last 2 overall): hard types downgraded to ea
 
 ---
 
+## lib/planTemplates.ts — Public API
+
+Static, hand-designed plans that the engine **replays verbatim** (store-and-replay)
+instead of computing from formulas. For any `distance × level × goal` with a
+reference plan, `generatePlan()` detects a matching template and builds the plan
+straight from this data.
+
+| Export | Purpose |
+|---|---|
+| `findTemplate(distance, level, goal?)` | Lookup by key `` `${distance}_${level}${goal==="endurance"?"_endurance":""}` ``; returns `PlanTemplate` or `undefined` (→ parametric) |
+| `PlanTemplate` | `{ distance, level, weeks, daysPerWeek, paces, projectedTime, projectedRange, schedule[] }` |
+| `TemplateWeek` | Either legacy `{ quality[], long }` (placed on user's chosen days) or explicit `days[]` (fixed 7-slot weekday layout, 0=Sun…6=Sat) |
+| `TemplateWorkout` | `{ type, distanceKm, reps?, repKm?, racePrep?, rollingTerrain?, isRace?, note? }` |
+| `TemplatePace` | `{ target, rangeLo?, rangeHi? }` in sec/km (easy/long = "no faster than" limit) |
+
+**Templates today** (both 22 weeks, full_marathon × beginner):
+- `full_marathon_beginner` — performance plan (source: `public/Marathon_Training_Plan.xlsx`)
+- `full_marathon_beginner_endurance` — injury-safe / no-speed finisher (~8:30/km, weekly cross-training day, fixed 7-day layout)
+
+---
+
 ## lib/workoutSteps.ts — Public API
 
 | Export | Purpose |
 |---|---|
-| `generateWorkoutSteps(type, distance, paces)` | Returns `WorkoutSection[]` (warm-up + main + cool-down) |
+| `generateWorkoutSteps(type, distance, paces)` | Returns `WorkoutSection[]` (warm-up + main + cool-down) — parametric path |
+| `buildTemplateWorkoutSteps(w, paces)` | Builds exact outdoor + treadmill `WorkoutSection[]` for a template workout; stored in `GeneratedDay.detail` (race has no treadmill variant) |
 | `speedLabel(pace, treadmill)` | `"7:00/km"` or `"7:00/km (8.6 km/h)"` for treadmill |
 | `WorkoutStep` | `{ activity, description, distance?, pace?, duration? }` |
 | `WorkoutSection` | `{ key, label, type, steps[], coachNote? }` |
@@ -194,6 +229,7 @@ User ──────────────────────── (N
 RunnerProfile
   ├── age Int?                Used for HR zone calculation
   ├── targetDistance String   "5k" | "half_marathon" | "trail" | …
+  ├── level String            "beginner" | "intermediate" | "advanced" (default beginner)
   ├── daysPerWeek Int
   ├── trainingDays String      JSON array e.g. "[1,3,4,6]"
   ├── longRunDay Int
@@ -209,6 +245,7 @@ RunnerProfile
 TrainingPlan
   ├── name String
   ├── targetDistance String
+  ├── level String            "beginner" | "intermediate" | "advanced" (default beginner)
   ├── startDate / raceDate DateTime
   ├── trainingWeeks Int
   ├── projectedTime String?
@@ -222,12 +259,12 @@ TrainingPlan
 
 | Action | File | What it does |
 |---|---|---|
-| `createPlanFromWizard` | plan.ts | Validates → generates plan → saves to DB → upserts profile |
+| `createPlanFromWizard` | plan.ts | Validates (+ level, trainingGoal) → template or parametric plan → prepends lead-in week if mid-week start → saves to DB (incl. level) → upserts profile |
 | `updatePlan` | plan.ts | Rename or toggle isActive |
 | `deletePlan` | plan.ts | Hard delete (auth-gated) |
 | `createPlan` | plan.ts | **Deprecated** — legacy FormData version |
-| `upsertProfile` | profile.ts | Update RunnerProfile from ProfileFormDialog |
-| `saveCompletion` | workout.ts | Patch planData JSON to record daily workout completion % |
+| `upsertProfile` | profile.ts | Update RunnerProfile from ProfileFormDialog (incl. level) |
+| `saveCompletion` | workout.ts | Patch planData JSON to record daily workout completion % (`weekNumber ≥ 0`; 0 = lead-in week) |
 
 ---
 
@@ -236,13 +273,15 @@ TrainingPlan
 | Type | Purpose |
 |---|---|
 | `TargetDistance` | `"3k_beginner" \| "5k" \| "mini_marathon" \| "half_marathon" \| "full_marathon" \| "ultra_50" \| "ultra_100" \| "trail"` |
+| `ExperienceLevel` | `"beginner" \| "intermediate" \| "advanced"` (+ `EXPERIENCE_LEVEL_VALUES` / `_LABELS`) |
+| `TrainingGoal` | `"performance" \| "endurance"` — selects a plan variant for the same distance × level (default performance) |
 | `WorkoutType` | 16 types: rest, easy, long, tempo, interval, race_pace, recovery, hills, cross_train, fartlek, strides, progressive, pyramid, drop_set, broken_mile, fartlek_rolling |
 | `TrainingPhase` | `"base" \| "build" \| "peak" \| "taper"` |
-| `GeneratedDay` | `{ type, distance, pace, description, rpe, notes }` |
-| `GeneratedWeek` | `{ weekNumber, phase, totalKm, days[] }` |
+| `GeneratedDay` | `{ type, distance, pace, description, rpe, notes, elevationGain, detail? }` — `detail?: { outdoor, treadmill? }` = store-and-replay steps (template plans) |
+| `GeneratedWeek` | `{ weekNumber, phase, totalKm, elevationGain, days[], isLeadIn? }` — `isLeadIn` marks the uncounted lead-in week (weekNumber 0) |
 | `GeneratedPlan` | `{ weeks[], projectedFinishTime, improvementRange }` |
-| `PlanGenerationInput` | Engine input: distances, days, PRs, intensity, age?, morningZone2? |
-| `WizardFormState` | All 6 wizard steps in one object |
+| `PlanGenerationInput` | Engine input: distances, level, trainingGoal?, days, PRs, intensity, age?, morningZone2? |
+| `WizardFormState` | All 6 wizard steps in one object (incl. level, trainingGoal) |
 | `CompletionRecord` | `{ completion: 0–100, note? }` — one per workout day |
 
 ---
@@ -270,7 +309,12 @@ Session user has `id` injected via `session()` callback in `auth.ts`.
 |---|---|
 | Google Sign-In | ✅ Done |
 | Plan Wizard (6 steps) | ✅ Done |
-| Training Plan Generation | ✅ Done |
+| Experience Levels (beginner/intermediate/advanced) | ✅ Done |
+| Training Goals (performance / endurance) | ✅ Done |
+| Training Plan Generation (parametric) | ✅ Done |
+| Template-backed Plans (store-and-replay) | ✅ Done (full_marathon × beginner) |
+| Lead-in Week (mid-week start) | ✅ Done |
+| Store-and-replay Workout Detail | ✅ Done (template plans) |
 | Calendar View | ✅ Done |
 | Workout Step-by-step | ✅ Done |
 | Treadmill Mode (speed display) | ✅ Fixed (bug: 124.1→8.6 km/h) |

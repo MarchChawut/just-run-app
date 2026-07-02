@@ -45,3 +45,6 @@ next-env.d.ts
 # generated prisma client (regenerated via `prisma generate`)
 /app/generated/
 
+# working-copy source spreadsheet (served copy lives in public/)
+/Marathon_Training_Plan.xlsx
+

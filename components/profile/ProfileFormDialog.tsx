@@ -96,19 +96,33 @@ export function ProfileFormDialog({ profile }: Props) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="intensity">ความเข้มข้น</Label>
+                  <Label htmlFor="level">ระดับความชำนาญ</Label>
                   <select
-                    id="intensity"
-                    name="intensity"
-                    defaultValue={profile?.intensity ?? "normal"}
+                    id="level"
+                    name="level"
+                    defaultValue={(profile as { level?: string } | null)?.level ?? "beginner"}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <option value="gentle">ผ่อนคลาย</option>
-                    <option value="normal">ปกติ</option>
-                    <option value="challenging">ท้าทาย</option>
-                    <option value="elite">Elite</option>
+                    <option value="beginner">Beginner (มือใหม่)</option>
+                    <option value="intermediate">Intermediate (ปานกลาง)</option>
+                    <option value="advanced">Advanced (ขั้นสูง)</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="intensity">ความเข้มข้น</Label>
+                <select
+                  id="intensity"
+                  name="intensity"
+                  defaultValue={profile?.intensity ?? "normal"}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="gentle">ผ่อนคลาย</option>
+                  <option value="normal">ปกติ</option>
+                  <option value="challenging">ท้าทาย</option>
+                  <option value="elite">Elite</option>
+                </select>
               </div>
             </fieldset>
 

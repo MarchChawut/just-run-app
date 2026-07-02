@@ -1,6 +1,35 @@
 import type { User, RunnerProfile, TrainingPlan } from "@prisma/client"
+import type { WorkoutSection } from "@/lib/workoutSteps"
 
 export type { User, RunnerProfile, TrainingPlan }
+
+// ─── Experience level ────────────────────────────────────────────────────────
+export type ExperienceLevel = "beginner" | "intermediate" | "advanced"
+
+export const EXPERIENCE_LEVEL_VALUES: readonly ExperienceLevel[] = [
+  "beginner",
+  "intermediate",
+  "advanced",
+] as const
+
+export const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
+  beginner: "Beginner (มือใหม่)",
+  intermediate: "Intermediate (ปานกลาง)",
+  advanced: "Advanced (ขั้นสูง)",
+}
+
+// ─── Training goal ───────────────────────────────────────────────────────────
+// Picks between plan variants for the same distance × level: "performance"
+// (speed/time-focused, the default) vs "endurance" (injury-safe finisher, no
+// speed emphasis). Used to select a template (see findTemplate).
+export type TrainingGoal = "performance" | "endurance"
+
+export const TRAINING_GOAL_VALUES: readonly TrainingGoal[] = ["performance", "endurance"] as const
+
+export const TRAINING_GOAL_LABELS: Record<TrainingGoal, string> = {
+  performance: "เน้นเวลา/ความเร็ว",
+  endurance: "เน้นจบปลอดภัย (ไม่เน้นความเร็ว)",
+}
 
 // ─── Session ───────────────────────────────────────────────────────────────
 export type SessionUser = {
@@ -143,6 +172,13 @@ export type GeneratedDay = {
   rpe: number
   notes: string
   elevationGain: number   // session climb in meters (D+) — 0 for road / rest
+  // Template-backed plans store the exact workout breakdown here (store-and-replay).
+  // When present, DayActionSheet renders these verbatim instead of regenerating
+  // steps from type+pace. Absent → engine falls back to generateWorkoutSteps().
+  detail?: {
+    outdoor: WorkoutSection[]
+    treadmill?: WorkoutSection[]
+  }
 }
 
 export type GeneratedWeek = {
@@ -151,6 +187,11 @@ export type GeneratedWeek = {
   totalKm: number
   elevationGain: number    // weekly total climb in meters (D+)
   days: GeneratedDay[]
+  // Uncounted lead-in week (สัปดาห์เกริ่นนำ): when the user starts mid-week and
+  // fewer than 3 training days remain in that first calendar week, those runs
+  // become an easy lead-in that is NOT counted toward the N training weeks.
+  // weekNumber is 0 for the lead-in; the real training weeks stay 1..N.
+  isLeadIn?: boolean
 }
 
 export type GeneratedPlan = {
@@ -217,6 +258,8 @@ export type ActivityAction =
 // ─── Engine input ──────────────────────────────────────────────────────────
 export type PlanGenerationInput = {
   targetDistance: TargetDistance
+  level: ExperienceLevel
+  trainingGoal?: TrainingGoal   // selects a plan variant (performance vs endurance); default performance
   trainingWeeks: number
   daysPerWeek: number
   trainingDays: number[]
@@ -235,6 +278,8 @@ export type PlanGenerationInput = {
 // ─── Wizard state ──────────────────────────────────────────────────────────
 export type WizardFormState = {
   targetDistance: TargetDistance | ""
+  level: ExperienceLevel
+  trainingGoal: TrainingGoal
   startDate: string
   raceDate: string
   trainingWeeks: number

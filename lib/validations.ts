@@ -15,9 +15,12 @@ export const TARGET_DISTANCE_VALUES = [
   "trail_50",
 ] as const
 
+export const EXPERIENCE_LEVEL_VALUES = ["beginner", "intermediate", "advanced"] as const
+
 export const runnerProfileSchema = z.object({
   age: z.number().int().min(10).max(100).optional(),
   targetDistance: z.enum(TARGET_DISTANCE_VALUES),
+  level: z.enum(EXPERIENCE_LEVEL_VALUES).default("beginner"),
   daysPerWeek: z.number().int().min(2).max(7).default(4),
   trainingDays: z.array(z.number().int().min(0).max(6)),
   longRunDay: z.number().int().min(0).max(6).default(6),
@@ -50,6 +53,8 @@ export const trainingPlanSchema = z.object({
 export const createPlanWizardSchema = z.object({
   name: z.string().min(1).max(100),
   targetDistance: z.enum(TARGET_DISTANCE_VALUES),
+  level: z.enum(EXPERIENCE_LEVEL_VALUES).default("beginner"),
+  trainingGoal: z.enum(["performance", "endurance"]).default("performance"),
   startDate: z.string().min(1),
   raceDate: z.string().min(1),
   trainingWeeks: z.number().int().min(4).max(36),

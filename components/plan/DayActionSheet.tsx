@@ -147,10 +147,16 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
     try { return calculatePaces(planInput as PlanGenerationInput) } catch { return {} as Record<string, string> }
   }, [planInput])
   const isTrail = !!planInput?.targetDistance && isTrailDistance(planInput.targetDistance)
-  const sections = useMemo(
-    () => generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2], isTrail),
-    [day.type, day.distance, paces, isTrail]
-  )
+  const sections = useMemo(() => {
+    // Template-backed days carry the exact steps (store-and-replay); use the
+    // variant matching the run-mode toggle. Otherwise regenerate from type+pace.
+    if (day.detail) {
+      return activeMode === "treadmill" && day.detail.treadmill
+        ? day.detail.treadmill
+        : day.detail.outdoor
+    }
+    return generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2], isTrail)
+  }, [day.detail, day.type, day.distance, paces, isTrail, activeMode])
 
   const color = WORKOUT_COLORS[day.type] ?? "#888"
   const dayLabel = `วัน${DAYS_FULL[date.getDay()]} ${date.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}`

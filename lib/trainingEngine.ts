@@ -10,6 +10,8 @@ import type {
 } from "@/types"
 import { calcHRZones, type HRZones } from "@/lib/hrZones"
 import { DEFAULT_MULTIPLIERS, DEFAULT_ALGORITHM_PARAMS } from "@/lib/formulaDefaults"
+import { findTemplate, type PlanTemplate, type TemplateWorkout, type TemplatePace } from "@/lib/planTemplates"
+import { buildTemplateWorkoutSteps } from "@/lib/workoutSteps"
 
 // ─── Distance configurations ───────────────────────────────────────────────
 export type DistanceConfig = {
@@ -557,8 +559,156 @@ export function getProjectedTime(input: PlanGenerationInput): { time: string; ra
 
 // ─── Main plan generator ───────────────────────────────────────────────────
 
+// ─── Template-backed generation (exact static plans) ─────────────────────────
+
+/** Scale every "M:SS" and "H:MM:SS" time token in a string by `mod`, preserving
+ *  each token's original format. Used to shift a template's projected finish time
+ *  and pace-range text when intensity changes (finish time scales with pace). */
+function scaleTimeString(str: string, mod: number): string {
+  return str.replace(/\d{1,2}:\d{2}(?::\d{2})?/g, (token) => {
+    const sec = Math.round(parseTimeToSeconds(token) * mod)
+    if (token.split(":").length === 3) {
+      const h = Math.floor(sec / 3600)
+      const m = Math.floor((sec % 3600) / 60)
+      const s = sec % 60
+      return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    }
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return `${m}:${s.toString().padStart(2, "0")}`
+  })
+}
+
+/** Apply the intensity modifier to a template's paces + projected time.
+ *  Same ±% the parametric engine uses in calculatePaces (gentle slower, elite
+ *  faster). Distances are left untouched — only pace and finish time move.
+ *  Returns the template unchanged for "normal" (mod === 1). */
+function scaleTemplateForIntensity(template: PlanTemplate, intensity: string): PlanTemplate {
+  const mod = ({ gentle: 1.05, normal: 1, challenging: 0.97, elite: 0.94 } as Record<string, number>)[intensity] ?? 1
+  if (mod === 1) return template
+
+  const scalePace = (p: TemplatePace): TemplatePace => ({
+    target: Math.round(p.target * mod),
+    rangeLo: p.rangeLo != null ? Math.round(p.rangeLo * mod) : undefined,
+    rangeHi: p.rangeHi != null ? Math.round(p.rangeHi * mod) : undefined,
+  })
+
+  const paces: PlanTemplate["paces"] = {}
+  for (const [type, p] of Object.entries(template.paces)) {
+    if (p) paces[type as WorkoutType] = scalePace(p)
+  }
+
+  return {
+    ...template,
+    paces,
+    projectedTime: scaleTimeString(template.projectedTime, mod),
+    projectedRange: scaleTimeString(template.projectedRange, mod),
+  }
+}
+
+/** Format a template pace (sec/km) to "M:SS", or "N/A" when absent. */
+function templatePaceStr(t: PlanTemplate, type: WorkoutType): string {
+  const p = t.paces[type] ?? t.paces.easy
+  return p ? formatPace(p.target) : "N/A"
+}
+
+/** Build one GeneratedDay from a template workout (with store-and-replay detail). */
+function templateDay(
+  w: TemplateWorkout,
+  t: PlanTemplate,
+  phase: TrainingPhase,
+  weekNum: number,
+  zones?: HRZones,
+): GeneratedDay {
+  const distance = Math.round(w.distanceKm * 10) / 10
+  const pace = templatePaceStr(t, w.type)
+  const description = w.isRace
+    ? `🏁 RACE DAY — Full Marathon ${w.distanceKm} km · เพซเป้าหมาย ${t.projectedRange}`
+    : buildDescription(w.type, distance, pace)
+  return {
+    type: w.type,
+    distance,
+    pace,
+    description,
+    rpe: getRpe(w.type, phase),
+    notes: w.note ?? (w.isRace ? "🏁 ออกตัวสบายๆ · แบ่งเพซให้ดี · negative split ถ้าทำได้" : getNotes(w.type, phase, weekNum, zones, false)),
+    elevationGain: 0,
+    detail: buildTemplateWorkoutSteps(w, t.paces),
+  }
+}
+
+/** Replay a static template as a GeneratedPlan — exact week-by-week reproduction.
+ *  Intensity shifts the template's paces + projected time (distances unchanged);
+ *  "normal" reproduces the template verbatim. */
+export function buildPlanFromTemplate(template: PlanTemplate, input: PlanGenerationInput): GeneratedPlan {
+  const t = scaleTemplateForIntensity(template, input.intensity)
+  const zones = input.age ? calcHRZones(input.age) : undefined
+
+  // The template fixes days-per-week; use the user's chosen training days only
+  // when the count matches, else fall back to the canonical layout.
+  const trainingDays =
+    input.trainingDays.length === t.daysPerWeek
+      ? [...input.trainingDays].sort((a, b) => a - b)
+      : getDefaultTrainingDays(t.daysPerWeek)
+  const longRunDay = trainingDays.includes(input.longRunDay)
+    ? input.longRunDay
+    : trainingDays[trainingDays.length - 1]
+  const otherDays = trainingDays.filter((d) => d !== longRunDay)
+
+  const restDay = (): GeneratedDay => ({
+    type: "rest",
+    distance: 0,
+    pace: "N/A",
+    description: buildDescription("rest", 0, "N/A"),
+    rpe: 0,
+    notes: getNotes("rest", "base", 1, zones, false),
+    elevationGain: 0,
+  })
+
+  // The template is the maximum-length plan. For a shorter window, keep the
+  // race-specific back half (peak + taper + race) and drop early base weeks —
+  // the sport-science way to compress a marathon build. `trainingWeeks` is
+  // pre-clamped to [16, t.weeks] by the caller; guard here regardless.
+  const targetWeeks = Math.min(t.weeks, Math.max(1, input.trainingWeeks || t.weeks))
+  const schedule = t.schedule.slice(t.schedule.length - targetWeeks)
+
+  const weeks: GeneratedWeek[] = schedule.map((week, i) => {
+    const weekNum = i + 1
+    const phase = getPhase(weekNum, schedule.length)
+    const days: GeneratedDay[] = Array.from({ length: 7 }, restDay)
+
+    if (week.days) {
+      // Explicit fixed weekday layout (index 0=Sun … 6=Sat): place each workout
+      // on its exact day, ignoring the user's chosen training days.
+      week.days.forEach((w, di) => {
+        if (w) days[di] = templateDay(w, t, phase, weekNum, zones)
+      })
+    } else {
+      // Legacy quality/long layout: align quality workouts to the LAST otherDays
+      // so short weeks drop the earliest weekday (rest), matching the Excel
+      // (e.g. week 1 → Wed/Thu, not Mon/Wed). Full weeks have offset 0.
+      const quality = (week.quality ?? []).slice(0, otherDays.length)
+      const offset = otherDays.length - quality.length
+      quality.forEach((w, j) => {
+        days[otherDays[offset + j]] = templateDay(w, t, phase, weekNum, zones)
+      })
+      if (week.long) days[longRunDay] = templateDay(week.long, t, phase, weekNum, zones)
+    }
+
+    const totalKm = Math.round(days.reduce((s, d) => s + d.distance, 0) * 10) / 10
+    const phaseName = week.phaseLabel ?? getPhaseName(phase)
+    return { weekNumber: weekNum, phase: phaseName, totalKm, elevationGain: 0, days }
+  })
+
+  return { weeks, projectedFinishTime: t.projectedTime, improvementRange: t.projectedRange }
+}
+
 /** Generate the full training plan (verbatim: C()) */
 export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
+  // Template-backed formula? Replay the exact static plan.
+  const template = findTemplate(input.targetDistance, input.level, input.trainingGoal)
+  if (template) return buildPlanFromTemplate(template, input)
+
   const paces = calculatePaces(input)
   const weeklyKm = generateWeeklyKm(input)
   const weeks: GeneratedWeek[] = []
@@ -628,4 +778,60 @@ export function generatePlan(input: PlanGenerationInput): GeneratedPlan {
 
   const projected = getProjectedTime(input)
   return { weeks, projectedFinishTime: projected.time, improvementRange: projected.range }
+}
+
+/**
+ * Build an uncounted lead-in week (สัปดาห์เกริ่นนำ) for a mid-week start.
+ *
+ * When the user starts mid-week and fewer than 3 training days remain in that
+ * first calendar week, those remaining runs shouldn't be crammed into "week 1"
+ * of the structured progression. Instead they become easy lead-in runs on the
+ * training days that fall on/after the start day-of-week. `weekNumber` is 0 and
+ * `isLeadIn` is set so consumers render it as a lead-in, not a counted week.
+ *
+ * `firstWeek` is the real training week 1 — we borrow its easy-run distance so
+ * the lead-in matches the plan's opening volume (works for both template and
+ * parametric plans).
+ */
+export function buildLeadInWeek(
+  input: PlanGenerationInput,
+  startDow: number,
+  firstWeek: GeneratedWeek,
+): GeneratedWeek {
+  const zones = input.age ? calcHRZones(input.age) : undefined
+  const isTrail = isTrailDistance(input.targetDistance)
+  const paces = calculatePaces(input)
+
+  // Borrow the opening easy distance; fall back to a gentle fraction of week 1.
+  const easyDay = firstWeek.days.find((d) => d.type === "easy" && d.distance > 0)
+  const easyDistance = easyDay
+    ? easyDay.distance
+    : Math.max(3, Math.round(firstWeek.totalKm * 0.25))
+
+  const trainingDays = new Set(input.trainingDays)
+  const days: GeneratedDay[] = Array.from({ length: 7 }, (_, d) => {
+    if (trainingDays.has(d) && d >= startDow) {
+      return {
+        type: "easy" as WorkoutType,
+        distance: easyDistance,
+        pace: paces.easy,
+        description: buildDescription("easy", easyDistance, paces.easy),
+        rpe: getRpe("easy", "base"),
+        notes: getNotes("easy", "base", 1, zones, isTrail),
+        elevationGain: 0,
+      }
+    }
+    return {
+      type: "rest" as WorkoutType,
+      distance: 0,
+      pace: "N/A",
+      description: buildDescription("rest", 0, "N/A"),
+      rpe: 0,
+      notes: getNotes("rest", "base", 1, zones, isTrail),
+      elevationGain: 0,
+    }
+  })
+
+  const totalKm = Math.round(days.reduce((s, d) => s + d.distance, 0) * 10) / 10
+  return { weekNumber: 0, phase: "เกริ่นนำ", totalKm, elevationGain: 0, days, isLeadIn: true }
 }

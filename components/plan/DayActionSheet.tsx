@@ -5,8 +5,7 @@ import { saveCompletion } from "@/app/actions/workout"
 import { WORKOUT_COLORS, WORKOUT_LABELS } from "@/types"
 import { generateWorkoutSteps, speedLabel, type WorkoutSection } from "@/lib/workoutSteps"
 import { getMealsForWorkout, MEAL_LABELS, type MealSlot } from "@/lib/mealData"
-import { calculatePaces, isTrailDistance } from "@/lib/trainingEngine"
-import type { GeneratedDay, CompletionRecord, PlanGenerationInput } from "@/types"
+import type { GeneratedDay, CompletionRecord } from "@/types"
 
 type Props = {
   planId: string
@@ -16,7 +15,6 @@ type Props = {
   day: GeneratedDay
   existing?: CompletionRecord
   runMode?: "outdoor" | "treadmill"
-  planInput?: Partial<PlanGenerationInput>
   onClose: () => void
   onSaved: (key: string, record: CompletionRecord) => void
 }
@@ -119,7 +117,7 @@ function SectionBlock({ section, isTreadmill }: { section: WorkoutSection; isTre
   )
 }
 
-export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existing, runMode = "outdoor", planInput, onClose, onSaved }: Props) {
+export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existing, runMode = "outdoor", onClose, onSaved }: Props) {
   const [activeMode, setActiveMode] = useState<"outdoor" | "treadmill">(runMode)
   const [completionMode, setCompletionMode] = useState<"preset" | "custom">("preset")
   const [customValue, setCustomValue] = useState(existing?.completion?.toString() ?? "")
@@ -142,21 +140,18 @@ export function DayActionSheet({ planId, weekNumber, dayIndex, date, day, existi
   }
 
   // Workout steps
-  const paces = useMemo(() => {
-    if (!planInput) return {} as Record<string, string>
-    try { return calculatePaces(planInput as PlanGenerationInput) } catch { return {} as Record<string, string> }
-  }, [planInput])
-  const isTrail = !!planInput?.targetDistance && isTrailDistance(planInput.targetDistance)
   const sections = useMemo(() => {
     // Template-backed days carry the exact steps (store-and-replay); use the
-    // variant matching the run-mode toggle. Otherwise regenerate from type+pace.
+    // variant matching the run-mode toggle. Otherwise regenerate from type only —
+    // this legacy fallback (plans saved before day.detail existed) has no per-day
+    // pace data here, so generateWorkoutSteps derives generic steps from the type.
     if (day.detail) {
       return activeMode === "treadmill" && day.detail.treadmill
         ? day.detail.treadmill
         : day.detail.outdoor
     }
-    return generateWorkoutSteps(day.type, day.distance || 5, paces as Parameters<typeof generateWorkoutSteps>[2], isTrail)
-  }, [day.detail, day.type, day.distance, paces, isTrail, activeMode])
+    return generateWorkoutSteps(day.type, day.distance || 5, {} as Parameters<typeof generateWorkoutSteps>[2], false)
+  }, [day.detail, day.type, day.distance, activeMode])
 
   const color = WORKOUT_COLORS[day.type] ?? "#888"
   const dayLabel = `วัน${DAYS_FULL[date.getDay()]} ${date.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}`

@@ -1,4 +1,5 @@
 import type { TargetDistance, WorkoutType, ExperienceLevel } from "@/types"
+import { TEMPLATE_META } from "@/lib/planConstants"
 
 // ─── Static plan templates ───────────────────────────────────────────────────
 //
@@ -171,6 +172,20 @@ const FULL_MARATHON_BEGINNER_ENDURANCE: PlanTemplate = {
 const PLAN_TEMPLATES: Record<string, PlanTemplate> = {
   full_marathon_beginner: FULL_MARATHON_BEGINNER,
   full_marathon_beginner_endurance: FULL_MARATHON_BEGINNER_ENDURANCE,
+}
+
+// Dev-time drift guard: the client-safe TEMPLATE_META (lib/planConstants.ts) must
+// mirror each template's weeks/daysPerWeek. Warn if they diverge so the wizard's
+// metadata stays honest. Server-only; no effect in production.
+if (process.env.NODE_ENV !== "production") {
+  for (const [key, t] of Object.entries(PLAN_TEMPLATES)) {
+    const meta = TEMPLATE_META[key]
+    if (!meta || meta.weeks !== t.weeks || meta.daysPerWeek !== t.daysPerWeek) {
+      console.warn(
+        `[planTemplates] TEMPLATE_META drift for "${key}": template=${t.weeks}w/${t.daysPerWeek}d, meta=${meta ? `${meta.weeks}w/${meta.daysPerWeek}d` : "missing"}`,
+      )
+    }
+  }
 }
 
 /** Look up a static template for a distance × level × goal, or undefined for parametric. */

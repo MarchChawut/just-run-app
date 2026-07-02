@@ -12,45 +12,19 @@ import { calcHRZones, type HRZones } from "@/lib/hrZones"
 import { DEFAULT_MULTIPLIERS, DEFAULT_ALGORITHM_PARAMS } from "@/lib/formulaDefaults"
 import { findTemplate, type PlanTemplate, type TemplateWorkout, type TemplatePace } from "@/lib/planTemplates"
 import { buildTemplateWorkoutSteps } from "@/lib/workoutSteps"
+import {
+  DISTANCE_CONFIGS,
+  isTrailDistance,
+  normalizeDistance,
+  getDefaultTrainingDays,
+  type DistanceConfig,
+} from "@/lib/planConstants"
 
-// ─── Distance configurations ───────────────────────────────────────────────
-export type DistanceConfig = {
-  label: string
-  km: number
-  minWeeks: number
-  maxWeeks: number
-  recommendedWeeks: number[]
-  baseKmPerWeek: number
-  peakKmPerWeek: number
-  longRunMax: number
-  defaultGain: number   // typical race elevation gain in meters (0 for road)
-  icon: string
-}
-
-export const DISTANCE_CONFIGS: Record<TargetDistance, DistanceConfig> = {
-  "3k_beginner": { label: "3K (เริ่มต้น < 28 นาที)", km: 3, minWeeks: 6, maxWeeks: 12, recommendedWeeks: [6, 8, 10, 12], baseKmPerWeek: 10, peakKmPerWeek: 24, longRunMax: 5, defaultGain: 0, icon: "🌱" },
-  "5k":          { label: "5K", km: 5, minWeeks: 8, maxWeeks: 16, recommendedWeeks: [8, 10, 12, 16], baseKmPerWeek: 15, peakKmPerWeek: 35, longRunMax: 8, defaultGain: 0, icon: "⚡" },
-  "mini_marathon": { label: "Mini Marathon (10K)", km: 10, minWeeks: 10, maxWeeks: 16, recommendedWeeks: [10, 12, 14, 16], baseKmPerWeek: 20, peakKmPerWeek: 50, longRunMax: 14, defaultGain: 0, icon: "🏃" },
-  "half_marathon": { label: "Half Marathon (21.1K)", km: 21.1, minWeeks: 12, maxWeeks: 20, recommendedWeeks: [12, 14, 16, 18, 20], baseKmPerWeek: 30, peakKmPerWeek: 65, longRunMax: 22, defaultGain: 0, icon: "🥈" },
-  "full_marathon": { label: "Full Marathon (42.2K)", km: 42.195, minWeeks: 16, maxWeeks: 24, recommendedWeeks: [16, 18, 20, 24], baseKmPerWeek: 40, peakKmPerWeek: 80, longRunMax: 35, defaultGain: 0, icon: "🏅" },
-  "ultra_50":    { label: "Ultra 50K", km: 50, minWeeks: 20, maxWeeks: 32, recommendedWeeks: [20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, defaultGain: 0, icon: "💪" },
-  "ultra_100":   { label: "Ultra 100K", km: 100, minWeeks: 24, maxWeeks: 36, recommendedWeeks: [24, 28, 32, 36], baseKmPerWeek: 60, peakKmPerWeek: 120, longRunMax: 60, defaultGain: 0, icon: "🔥" },
-  "trail_15":    { label: "Trail 15K", km: 15, minWeeks: 8, maxWeeks: 20, recommendedWeeks: [8, 10, 11, 12, 14, 16, 20], baseKmPerWeek: 25, peakKmPerWeek: 50, longRunMax: 18, defaultGain: 600, icon: "🌲" },
-  "trail_20":    { label: "Trail 20K", km: 20, minWeeks: 8, maxWeeks: 22, recommendedWeeks: [8, 10, 11, 12, 16, 18, 22], baseKmPerWeek: 30, peakKmPerWeek: 60, longRunMax: 24, defaultGain: 900, icon: "🌲" },
-  "trail_30":    { label: "Trail 30K", km: 30, minWeeks: 8, maxWeeks: 26, recommendedWeeks: [8, 10, 11, 12, 16, 20, 24, 26], baseKmPerWeek: 40, peakKmPerWeek: 75, longRunMax: 32, defaultGain: 1400, icon: "🏔️" },
-  "trail_40":    { label: "Trail 40K", km: 40, minWeeks: 8, maxWeeks: 30, recommendedWeeks: [8, 10, 11, 12, 18, 22, 26, 30], baseKmPerWeek: 45, peakKmPerWeek: 90, longRunMax: 38, defaultGain: 2000, icon: "🏔️" },
-  "trail_50":    { label: "Trail 50K", km: 50, minWeeks: 8, maxWeeks: 32, recommendedWeeks: [8, 10, 11, 12, 20, 24, 28, 32], baseKmPerWeek: 50, peakKmPerWeek: 100, longRunMax: 45, defaultGain: 2600, icon: "⛰️" },
-}
-
-/** True for any trail distance (trail_15 … trail_50). */
-export function isTrailDistance(d: TargetDistance | string): boolean {
-  return String(d).startsWith("trail")
-}
-
-/** Map legacy "trail" rows (pre-multi-distance) to trail_15 to avoid undefined lookups. */
-export function normalizeDistance(d: string): TargetDistance {
-  return (d === "trail" ? "trail_15" : d) as TargetDistance
-}
+// Browser-safe primitives live in planConstants (a leaf module) so client
+// components can import them without pulling this engine into their bundle.
+// Re-export here so existing server imports from "@/lib/trainingEngine" keep working.
+export { DISTANCE_CONFIGS, isTrailDistance, normalizeDistance, getDefaultTrainingDays }
+export type { DistanceConfig }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────
 
@@ -132,20 +106,6 @@ export function getPhaseName(phase: TrainingPhase): string {
 /** Elevation specificity multiplier by phase — vert ramps up toward race demand, then tapers. */
 const VERT_SPECIFICITY: Record<TrainingPhase, number> = {
   base: 0.70, build: 0.90, peak: 1.10, taper: 0.60,
-}
-
-// ─── Default training days ─────────────────────────────────────────────────
-
-/** Default training day indices for a given days/week count (verbatim: ie()) */
-export function getDefaultTrainingDays(daysPerWeek: number): number[] {
-  return (
-    {
-      3: [1, 3, 6],
-      4: [1, 3, 4, 6],
-      5: [1, 2, 3, 4, 6],
-      6: [1, 2, 3, 4, 5, 6],
-    }[Math.min(6, Math.max(3, daysPerWeek))] ?? [1, 3, 6]
-  )
 }
 
 // ─── Pace calculation ──────────────────────────────────────────────────────

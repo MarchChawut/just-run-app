@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createPlanFromWizard } from "@/app/actions/plan"
-import { DISTANCE_CONFIGS, getDefaultTrainingDays, isTrailDistance, normalizeDistance } from "@/lib/trainingEngine"
-import { findTemplate } from "@/lib/planTemplates"
+import { DISTANCE_CONFIGS, getDefaultTrainingDays, isTrailDistance, normalizeDistance, findTemplateMeta } from "@/lib/planConstants"
 import { TARGET_DISTANCE_LABELS, EXPERIENCE_LEVEL_LABELS, TRAINING_GOAL_LABELS } from "@/types"
 import type { TargetDistance, WizardFormState, RunnerProfile, ExperienceLevel } from "@/types"
 
@@ -82,14 +81,16 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
   // the server action is the source of truth: it honors the chosen start date and
   // fits the plan length to the window (16 → template.weeks). Here we only reflect
   // that in the UI so the summary isn't misleading.
-  const template = form.targetDistance
-    ? findTemplate(form.targetDistance as TargetDistance, form.level, form.trainingGoal)
+  // Metadata only (weeks / daysPerWeek / existence) — the full schedule stays
+  // server-side (lib/planTemplates.ts) so it never enters the client bundle.
+  const templateMeta = form.targetDistance
+    ? findTemplateMeta(form.targetDistance as TargetDistance, form.level, form.trainingGoal)
     : undefined
-  const templateActive = !!template
+  const templateActive = !!templateMeta
   // Show the training-goal toggle when this distance × level has an endurance
   // variant to switch to (i.e. more than just the default performance plan).
   const hasGoalChoice = !!form.targetDistance &&
-    !!findTemplate(form.targetDistance as TargetDistance, form.level, "endurance")
+    !!findTemplateMeta(form.targetDistance as TargetDistance, form.level, "endurance")
   const TEMPLATE_MIN_WEEKS = 16
   // Available window (weeks) between chosen start and race dates.
   const availableWeeks =
@@ -98,10 +99,10 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
       : 0
   // Template plans adapt to the window: min 16, capped at the template length.
   const templateWeeksTooShort = templateActive && availableWeeks < TEMPLATE_MIN_WEEKS
-  const effectiveWeeks = template
-    ? Math.min(template.weeks, Math.max(TEMPLATE_MIN_WEEKS, availableWeeks))
+  const effectiveWeeks = templateMeta
+    ? Math.min(templateMeta.weeks, Math.max(TEMPLATE_MIN_WEEKS, availableWeeks))
     : form.trainingWeeks
-  const effectiveDays = template?.daysPerWeek ?? form.daysPerWeek
+  const effectiveDays = templateMeta?.daysPerWeek ?? form.daysPerWeek
 
   // Compute training weeks from dates
   const computeWeeks = (start: string, race: string, dist: TargetDistance) => {
@@ -691,7 +692,7 @@ export function PlanWizardPage({ profile }: { profile: RunnerProfile | null }) {
                 ) : (
                   <div className="rounded-lg p-3 text-xs" style={{ background: "rgba(74,240,255,0.06)", border: "1px solid rgba(74,240,255,0.25)", color: "#4af0ff" }}>
                     📋 สูตร {EXPERIENCE_LEVEL_LABELS[form.level]} · {TARGET_DISTANCE_LABELS[form.targetDistance as TargetDistance]} เป็นแผนสำเร็จรูป —
-                    ปรับความยาวได้ {TEMPLATE_MIN_WEEKS}–{template.weeks} สัปดาห์ตามช่วงถึงวันแข่ง (ตอนนี้ {effectiveWeeks} สัปดาห์) · {effectiveDays} วัน/สัปดาห์ ·
+                    ปรับความยาวได้ {TEMPLATE_MIN_WEEKS}–{templateMeta!.weeks} สัปดาห์ตามช่วงถึงวันแข่ง (ตอนนี้ {effectiveWeeks} สัปดาห์) · {effectiveDays} วัน/สัปดาห์ ·
                     เพซตามสูตร · ปรับได้ตามระดับความเข้มข้น · ไม่ใช้ PR · เริ่มซ้อมตามวันที่เลือก · ถ้าสัปดาห์แรกมีวันวิ่งไม่ถึง 3 วันจะเก็บเป็นสัปดาห์เกริ่นนำ ไม่นับเป็นสัปดาห์ซ้อม
                   </div>
                 )
